@@ -3,7 +3,7 @@
 # 儲存格 1：安裝所需套件
 # ==============================================================================
 # 每次重新連線 Colab 都需要執行一次這個儲存格，以安裝 line-bot-sdk
-!pip install line-bot-sdk requests -q
+pip install line-bot-sdk requests -q
 
 print("✅ 所有套件都已成功安裝！")
 
