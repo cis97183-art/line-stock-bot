@@ -10,7 +10,7 @@ from flask import Flask, request, abort
 # 儲存格 1：安裝所需套件
 # ==============================================================================
 # 每次重新連線 Colab 都需要執行一次這個儲存格，以安裝 line-bot-sdk
-!pip install line-bot-sdk requests -q
+
 
 print("✅ 所有套件都已成功安裝！")
 
@@ -18,28 +18,30 @@ print("✅ 所有套件都已成功安裝！")
 # 儲存格 2：引入套件並讀取金鑰
 # ==============================================================================
 # 引入所有需要的工具
+# =============================================================
+# --- 請用這整塊「正確的開頭區塊範本」取代你檔案的開頭 ---
+# =============================================================
+
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 import requests
-from google.colab import userdata # Colab 讀取密鑰的專用工具
-import os # 雖然 Colab 不用 os.environ，但為了未來部署方便，先引入
+import os
 
-# --- 從 Colab Secrets 安全地讀取金鑰 ---
-# 執行前，請確保你已經在左側的「鑰匙」圖示中設定好這三個密鑰
-try:
-    LINE_CHANNEL_ACCESS_TOKEN = userdata.get('LINE_CHANNEL_ACCESS_TOKEN')
-    LINE_CHANNEL_SECRET = userdata.get('LINE_CHANNEL_SECRET')
-    FINNHUB_API_KEY = userdata.get('FINNHUB_API_KEY')
-    print("🔑 金鑰已成功讀取！")
-    
-    # 簡單驗證一下金鑰是否為空
-    if not all([LINE_CHANNEL_ACCESS_TOKEN, LINE_CHANNEL_SECRET, FINNHUB_API_KEY]):
-        print("⚠️ 警告：有部分金鑰是空的，請檢查 Colab 密鑰設定！")
-        
-except Exception as e:
-    print(f"❌ 讀取金鑰時發生錯誤，請確認你已在 Colab Secrets 中設定好所有金鑰: {e}")
+# --- 從環境變數讀取金鑰 (請確保這三行完整無缺) ---
+LINE_CHANNEL_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
+LINE_CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET')
+FINNHUB_API_KEY = os.environ.get('FINNHUB_API_KEY')
+
+# --- 初始化 Flask App 和 Line Bot API ---
+app = Flask(__name__)
+line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
+handler = WebhookHandler(LINE_CHANNEL_SECRET)
+
+# =============================================================
+# --- 開頭區塊結束，下方應該接著 def get_stock_price(symbol): ---
+# =============================================================
 
 
 # ==============================================================================
@@ -109,20 +111,7 @@ print("✅ get_stock_price() 函式已準備就緒！")
 # 但我們可以像這樣，直接呼叫我們的函式，來測試核心邏輯是否正確。
 
 # --- 測試區 ---
-test_symbol_1 = "AAPL"  # 蘋果
-test_symbol_2 = "GOOG"  # Google
-test_symbol_3 = "NONEXISTENT" # 一個不存在的股票
 
-print(f"--- 正在測試 {test_symbol_1} ---")
-print(get_stock_price(test_symbol_1))
-print("\n" + "="*30 + "\n")
-
-print(f"--- 正在測試 {test_symbol_2} ---")
-print(get_stock_price(test_symbol_2))
-print("\n" + "="*30 + "\n")
-
-print(f"--- 正在測試 {test_symbol_3} ---")
-print(get_stock_price(test_symbol_3))
 
 
 
