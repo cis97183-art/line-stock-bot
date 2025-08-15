@@ -101,20 +101,7 @@ print("✅ get_stock_price() 函式已準備就緒！")
 # 但我們可以像這樣，直接呼叫我們的函式，來測試核心邏輯是否正確。
 
 # --- 測試區 ---
-test_symbol_1 = "AAPL"  # 蘋果
-test_symbol_2 = "GOOG"  # Google
-test_symbol_3 = "NONEXISTENT" # 一個不存在的股票
 
-print(f"--- 正在測試 {test_symbol_1} ---")
-print(get_stock_price(test_symbol_1))
-print("\n" + "="*30 + "\n")
-
-print(f"--- 正在測試 {test_symbol_2} ---")
-print(get_stock_price(test_symbol_2))
-print("\n" + "="*30 + "\n")
-
-print(f"--- 正在測試 {test_symbol_3} ---")
-print(get_stock_price(test_symbol_3))
 
 
 
