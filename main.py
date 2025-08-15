@@ -16,7 +16,6 @@ from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 import requests
-from google.colab import userdata # Colab 讀取密鑰的專用工具
 import os # 雖然 Colab 不用 os.environ，但為了未來部署方便，先引入
 
 # --- 從 Colab Secrets 安全地讀取金鑰 ---
