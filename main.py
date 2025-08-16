@@ -181,7 +181,7 @@ def handle_message(event):
             quick_reply_buttons = QuickReply(
                 items=[
                     QuickReplyButton(action=MessageAction(label="最新新聞 📰", text=f"{stock_symbol} news")),
-                    QuickButton(action=MessageAction(label="加入我的最愛 ❤️", text=f"add {stock_symbol}")),
+                    QuickReplyButton(action=MessageAction(label="加入我的最愛 ❤️", text=f"add {stock_symbol}")),
                 ]
             )
             reply_object = TextSendMessage(text=reply_text, quick_reply=quick_reply_buttons)
