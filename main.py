@@ -79,38 +79,56 @@ def callback():
 # =============================================================
 # 核心訊息處理邏輯 (豪華版)
 # =============================================================
+# =============================================================
+# 核心訊息處理邏輯 (升級版：能聽懂指令)
+# =============================================================
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    user_input = event.message.text
-    stock_symbol = user_input.upper()
+    user_message = event.message.text.lower()  # 先把使用者訊息轉成小寫，方便判斷
+    reply_object = None  # 先準備一個空的物件來裝回覆
 
-    reply_text = get_stock_price(stock_symbol)
+    # 判斷訊息是否為新聞查詢指令
+    if 'news' in user_message:
+        stock_symbol = user_message.split(" ")[0].upper()
+        # (未來這裡可以接上新聞 API)
+        reply_text = f"好的，正在為您查詢 {stock_symbol} 的最新新聞..."
+        reply_object = TextSendMessage(text=reply_text)
 
-    # 檢查回覆是否為錯誤訊息，如果是，就不顯示按鈕
-    if "找不到股票代碼" in reply_text or "錯誤" in reply_text:
-        reply_message_object = TextSendMessage(text=reply_text)
+    # 判斷訊息是否為加入我的最愛指令
+    elif 'add' in user_message:
+        stock_symbol = user_message.split(" ")[1].upper()
+        # (未來這裡可以接上資料庫)
+        reply_text = f"已將 {stock_symbol} 加入您的最愛清單！ ❤️"
+        reply_object = TextSendMessage(text=reply_text)
+
+    # 如果都不是以上指令，才當作是股票查詢
     else:
-        # 只有成功查到股價，才建立並加上 Quick Reply 按鈕
-        quick_reply_buttons = QuickReply(
-            items=[
-                QuickReplyButton(
-                    action=MessageAction(label="最新新聞 📰", text=f"{stock_symbol} news")
-                ),
-                QuickReplyButton(
-                    action=MessageAction(label="加入我的最愛 ❤️", text=f"add {stock_symbol}")
-                ),
-            ]
-        )
-        reply_message_object = TextSendMessage(
-            text=reply_text,
-            quick_reply=quick_reply_buttons
-        )
+        stock_symbol = user_message.upper()
+        reply_text = get_stock_price(stock_symbol)
 
-    # 使用建立好的訊息物件來回覆
-    line_bot_api.reply_message(
-        event.reply_token,
-        messages=reply_message_object
-    )
+        # 檢查回覆是否為錯誤訊息
+        if "找不到股票代碼" in reply_text or "錯誤" in reply_text:
+            reply_object = TextSendMessage(text=reply_text)
+        else:
+            # 成功查到股價，才加上 Quick Reply 按鈕
+            quick_reply_buttons = QuickReply(
+                items=[
+                    QuickReplyButton(
+                        action=MessageAction(label="最新新聞 📰", text=f"{stock_symbol} news")
+                    ),
+                    QuickReplyButton(
+                        action=MessageAction(label="加入我的最愛 ❤️", text=f"add {stock_symbol}")
+                    ),
+                ]
+            )
+            reply_object = TextSendMessage(
+                text=reply_text,
+                quick_reply=quick_reply_buttons
+            )
+    
+    # 最後，統一發送訊息 (如果 reply_object 有內容的話)
+    if reply_object:
+        line_bot_api.reply_message(event.reply_token, messages=reply_object)
 
 # =============================================================
 # 程式的啟動點
@@ -118,3 +136,4 @@ def handle_message(event):
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
+
