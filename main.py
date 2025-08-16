@@ -14,6 +14,7 @@ from linebot.models import (
 import requests
 import os
 import datetime # <<<=== 新增 datetime 工具
+import sqlite3
 
 # =============================================================
 # 從環境變數讀取金鑰並初始化服務
@@ -21,6 +22,34 @@ import datetime # <<<=== 新增 datetime 工具
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
 LINE_CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET')
 FINNHUB_API_KEY = os.environ.get('FINNHUB_API_KEY')
+
+# =============================================================
+# <<<=== 新增區塊：資料庫初始化 ===>>>
+# =============================================================
+def init_db():
+    """初始化資料庫，建立 favorites 資料表"""
+    conn = sqlite3.connect('favorites.db') # 這會建立或連接到一個名為 favorites.db 的資料庫檔案
+    cursor = conn.cursor()
+
+    # 建立一個名為 favorites 的資料表，如果它不存在的話
+    # 包含 id (主鍵), user_id (LINE 的使用者ID), stock_symbol (股票代碼) 三個欄位
+    # UNIQUE(user_id, stock_symbol) 是一個約束，確保同一個使用者不會重複加入同一支股票
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS favorites (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            stock_symbol TEXT NOT NULL,
+            UNIQUE(user_id, stock_symbol)
+        )
+    ''')
+
+    conn.commit() # 提交變更
+    conn.close() # 關閉資料庫連線
+
+# 在程式的最一開始（啟動 App 前）就執行一次這個函式
+# 這樣可以確保每次啟動時，資料庫和資料表都已經準備就緒
+init_db()
+# =============================================================
 
 app = Flask(__name__)
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
@@ -99,6 +128,35 @@ def get_company_news(symbol):
     except Exception:
         return "處理新聞資料時發生內部錯誤。"
 
+
+# =============================================================
+# <<<=== 新增區塊：操作資料庫的函式 ===>>>
+# =============================================================
+def add_to_favorites(user_id, stock_symbol):
+    """將股票加入指定使用者的最愛清單"""
+    try:
+        conn = sqlite3.connect('favorites.db')
+        cursor = conn.cursor()
+        
+        # 執行 SQL INSERT 指令，將 user_id 和 stock_symbol 寫入資料表
+        # 我們使用 (?, ?) 這種參數化查詢，可以防止 SQL 注入攻擊，更安全
+        cursor.execute("INSERT INTO favorites (user_id, stock_symbol) VALUES (?, ?)", (user_id, stock_symbol))
+        
+        conn.commit()
+        conn.close()
+        return f"已將 {stock_symbol} 加入您的最愛清單！ ❤️"
+        
+    except sqlite3.IntegrityError:
+        # 這會捕捉到當你試圖插入重複資料時的錯誤 (因為我們設定了 UNIQUE)
+        conn.close()
+        return f"{stock_symbol} 已經在您的最愛清單中了喔！ 😉"
+    except Exception as e:
+        # 捕捉其他可能的錯誤
+        conn.close()
+        print(f"資料庫錯誤: {e}")
+        return "新增最愛時發生錯誤，請稍後再試。"
+
+
 # =============================================================
 # Webhook 的進入點 (這部分不變)
 # =============================================================
@@ -115,20 +173,24 @@ def callback():
 # =============================================================
 # 核心訊息處理邏輯 (升級版：呼叫新聞函式)
 # =============================================================
+# =============================================================
+# 核心訊息處理邏輯 (升級版：具備寫入資料庫功能)
+# =============================================================
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
+    user_id = event.source.user_id  # <<<=== 取得使用者的 LINE User ID
     user_message = event.message.text.lower()
     reply_object = None
 
     if 'news' in user_message:
         stock_symbol = user_message.split(" ")[0].upper()
-        # <<<=== 呼叫我們的新聞函式 ===>>>
         reply_text = get_company_news(stock_symbol)
         reply_object = TextSendMessage(text=reply_text)
 
     elif 'add' in user_message:
         stock_symbol = user_message.split(" ")[1].upper()
-        reply_text = f"已將 {stock_symbol} 加入您的最愛清單！ ❤️"
+        # <<<=== 呼叫我們的新函式，並傳入 user_id 和股票代碼 ===>>>
+        reply_text = add_to_favorites(user_id, stock_symbol)
         reply_object = TextSendMessage(text=reply_text)
 
     else:
