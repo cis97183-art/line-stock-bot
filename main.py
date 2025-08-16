@@ -25,7 +25,10 @@ print("✅ 所有套件都已成功安裝！")
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, TextSendMessage
+from linebot.models import (
+    MessageEvent, TextMessage, TextSendMessage,
+    QuickReply, QuickReplyButton, MessageAction
+)
 import requests
 import os
 
@@ -140,11 +143,40 @@ def callback():
 # --- 訊息處理 ---
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
-    user_message = event.message.text
-    reply_text = get_stock_price(user_message) # 直接呼叫我們測試好的函式
+    user_input = event.message.text
+    stock_symbol = user_input.upper()  # 取得股票代碼並轉為大寫
+
+    # 先去查詢股價 (這部分不變)
+    reply_text = get_stock_price(stock_symbol)
+
+    # 檢查回覆是否為錯誤訊息，如果是，就不顯示按鈕
+    if "找不到股票代碼" in reply_text or "錯誤" in reply_text:
+        # 如果是錯誤訊息，就直接用純文字回覆
+        reply_message_object = TextSendMessage(text=reply_text)
+    else:
+        # --- 建立 Quick Reply 按鈕 ---
+        quick_reply_buttons = QuickReply(
+            items=[
+                QuickReplyButton(
+                    action=MessageAction(label="最新新聞 📰", text=f"{stock_symbol} news")
+                ),
+                QuickReplyButton(
+                    action=MessageAction(label="加入我的最愛 ❤️", text=f"add {stock_symbol}")
+                ),
+                # 你可以繼續增加更多按鈕，但上限是13個
+            ]
+        )
+
+        # 建立一個「包含文字」和「快速回覆按鈕」的新訊息物件
+        reply_message_object = TextSendMessage(
+            text=reply_text,
+            quick_reply=quick_reply_buttons
+        )
+
+    # 使用這個新的、更豐富的訊息物件來回覆
     line_bot_api.reply_message(
         event.reply_token,
-        TextSendMessage(text=reply_text)
+        messages=reply_message_object  # 將訊息物件傳遞給 messages 參數
     )
 
 # --- 啟動伺服器 (在 Colab 中不會這樣執行) ---
