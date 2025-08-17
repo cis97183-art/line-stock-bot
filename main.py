@@ -14,7 +14,7 @@ from linebot.models import (
 import requests
 import os
 import datetime
-import sqlite3
+import psycopg2 # 改用 psycopg2 來操作 PostgreSQL
 
 # =============================================================
 # 從環境變數讀取金鑰並初始化服務
@@ -22,33 +22,35 @@ import sqlite3
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
 LINE_CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET')
 FINNHUB_API_KEY = os.environ.get('FINNHUB_API_KEY')
+DATABASE_URL = os.environ.get('DATABASE_URL') # 讀取 Render 提供的資料庫網址
 
 app = Flask(__name__)
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
 # =============================================================
-# 資料庫初始化
+# 資料庫初始化 (改寫成 PostgreSQL 版本)
 # =============================================================
 def init_db():
-    conn = sqlite3.connect('favorites.db')
+    conn = psycopg2.connect(DATABASE_URL, sslmode='require')
     cursor = conn.cursor()
+    # PostgreSQL 的語法和 SQLite 有些微不同
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS favorites (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL,
-            stock_symbol TEXT NOT NULL,
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            stock_symbol VARCHAR(50) NOT NULL,
             UNIQUE(user_id, stock_symbol)
-        )
+        );
     ''')
     conn.commit()
+    cursor.close()
     conn.close()
 
 init_db()
 
 # =============================================================
-# 所有功能函式 (查詢股價、新聞、操作資料庫)
-# (此區塊與前一版相同，為求簡潔省略，請直接參考下方完整程式碼)
+# 功能函式一：查詢股價
 # =============================================================
 def get_stock_price(symbol):
     if not FINNHUB_API_KEY:
@@ -81,6 +83,9 @@ def get_stock_price(symbol):
     except Exception:
         return "處理股價資料時發生內部錯誤。"
 
+# =============================================================
+# 功能函式二：查詢新聞
+# =============================================================
 def get_company_news(symbol):
     if not FINNHUB_API_KEY:
         return "錯誤：尚未設定 Finnhub API Key。"
@@ -106,15 +111,20 @@ def get_company_news(symbol):
     except Exception:
         return "處理新聞資料時發生內部錯誤。"
 
+# =============================================================
+# 功能函式三：操作資料庫 (PostgreSQL 版本)
+# =============================================================
 def add_to_favorites(user_id, stock_symbol):
     try:
-        conn = sqlite3.connect('favorites.db')
+        conn = psycopg2.connect(DATABASE_URL, sslmode='require')
         cursor = conn.cursor()
-        cursor.execute("INSERT INTO favorites (user_id, stock_symbol) VALUES (?, ?)", (user_id, stock_symbol))
+        # PostgreSQL 的參數化查詢使用 %s
+        cursor.execute("INSERT INTO favorites (user_id, stock_symbol) VALUES (%s, %s)", (user_id, stock_symbol))
         conn.commit()
+        cursor.close()
         conn.close()
         return f"已將 {stock_symbol} 加入您的最愛清單！ ❤️"
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
         conn.close()
         return f"{stock_symbol} 已經在您的最愛清單中了喔！ 😉"
     except Exception as e:
@@ -123,10 +133,11 @@ def add_to_favorites(user_id, stock_symbol):
 
 def get_favorites(user_id):
     try:
-        conn = sqlite3.connect('favorites.db')
+        conn = psycopg2.connect(DATABASE_URL, sslmode='require')
         cursor = conn.cursor()
-        cursor.execute("SELECT stock_symbol FROM favorites WHERE user_id = ?", (user_id,))
+        cursor.execute("SELECT stock_symbol FROM favorites WHERE user_id = %s", (user_id,))
         results = cursor.fetchall()
+        cursor.close()
         conn.close()
         stock_list = [item[0] for item in results]
         return stock_list
@@ -155,7 +166,6 @@ def handle_message(event):
     user_message = event.message.text.lower()
     reply_object = None
 
-    # <<<=== 新增！處理「使用說明」按鈕 ===>>>
     if user_message in ['使用說明', 'help']:
         reply_text = """💡 使用說明 💡
 
@@ -170,13 +180,9 @@ def handle_message(event):
    - 看到喜歡的股票，點「加入我的最愛❤️」按鈕即可收藏。
 """
         reply_object = TextSendMessage(text=reply_text)
-    
-    # <<<=== 新增！處理「查詢股價」按鈕 ===>>>
     elif user_message in ['查詢股價', 'stock', 'query']:
         reply_text = "請直接輸入您想查詢的美股代碼喔！\n(例如: NVDA)"
         reply_object = TextSendMessage(text=reply_text)
-
-    # (以下是舊有的邏輯)
     elif user_message in ['我的最愛', 'favorite', 'favorites']:
         stock_list = get_favorites(user_id)
         if not stock_list:
