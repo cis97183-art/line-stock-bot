@@ -195,7 +195,7 @@ def callback():
     return 'OK'
 
 # =============================================================
-# 核心訊息處理邏輯 (畢業最終版)
+# 核心訊息處理邏輯 (修正版)
 # =============================================================
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
@@ -210,14 +210,16 @@ def handle_message(event):
 
 1️⃣ **查詢股價**
    - 直接輸入美股代碼 (例如: AAPL, TSLA)，我會回覆即時股價。
-   - 查詢成功後，可以點擊下方按鈕查看最新新聞或加入我的最愛。
+   - 查詢成功後，可以點擊下方按鈕查看公司資訊、最新新聞或加入我的最愛。
 
 2️⃣ **我的最愛**
    - 點擊選單上的「我的最愛」，我會列出你所有自選股的報價。
    - 看到喜歡的股票，點「加入我的最愛❤️」按鈕即可收藏。
 """
         reply_object = TextSendMessage(text=reply_text)
-    if 'profile' in user_message:
+    
+    # <<<=== 修正 #2：將 if 改為 elif，確保邏輯連貫 ===>>>
+    elif 'profile' in user_message:
         stock_symbol = user_message.split(" ")[0].upper()
         reply_text = get_company_profile(stock_symbol)
         reply_object = TextSendMessage(text=reply_text)
@@ -225,6 +227,7 @@ def handle_message(event):
     elif user_message in ['查詢股價', 'stock', 'query']:
         reply_text = "請直接輸入您想查詢的美股代碼喔！\n(例如: NVDA)"
         reply_object = TextSendMessage(text=reply_text)
+        
     elif user_message in ['我的最愛', 'favorite', 'favorites']:
         stock_list = get_favorites(user_id)
         if not stock_list:
@@ -235,24 +238,29 @@ def handle_message(event):
                 price_info = get_stock_price(symbol)
                 reply_text += f"\n{price_info}\n"
         reply_object = TextSendMessage(text=reply_text.strip())
+        
     elif 'news' in user_message:
         stock_symbol = user_message.split(" ")[0].upper()
         reply_text = get_company_news(stock_symbol)
         reply_object = TextSendMessage(text=reply_text)
+        
     elif 'add ' in user_message:
         stock_symbol = user_message.split(" ")[1].upper()
         reply_text = add_to_favorites(user_id, stock_symbol)
         reply_object = TextSendMessage(text=reply_text)
+        
     else:
         stock_symbol = user_message.upper()
         reply_text = get_stock_price(stock_symbol)
+        
         if "找不到股票代碼" in reply_text or "錯誤" in reply_text:
             reply_object = TextSendMessage(text=reply_text)
         else:
             quick_reply_buttons = QuickReply(
                 items=[
-                    quickReplyButton(action=MessageAction(label="公司資訊 🏢", text=f"{stock_symbol} profile")),
+                    QuickReplyButton(action=MessageAction(label="公司資訊 🏢", text=f"{stock_symbol} profile")),
                     QuickReplyButton(action=MessageAction(label="最新新聞 📰", text=f"{stock_symbol} news")),
+                    # <<<=== 修正 #1：將 q 改為 Q ===>>>
                     QuickReplyButton(action=MessageAction(label="加入我的最愛 ❤️", text=f"add {stock_symbol}")),
                 ]
             )
