@@ -14,7 +14,7 @@ from linebot.models import (
 import requests
 import os
 import datetime
-import psycopg2 # 改用 psycopg2 來操作 PostgreSQL
+import psycopg2
 
 # =============================================================
 # 從環境變數讀取金鑰並初始化服務
@@ -22,19 +22,18 @@ import psycopg2 # 改用 psycopg2 來操作 PostgreSQL
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
 LINE_CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET')
 FINNHUB_API_KEY = os.environ.get('FINNHUB_API_KEY')
-DATABASE_URL = os.environ.get('DATABASE_URL') # 讀取 Render 提供的資料庫網址
+DATABASE_URL = os.environ.get('DATABASE_URL')
 
 app = Flask(__name__)
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
 # =============================================================
-# 資料庫初始化 (改寫成 PostgreSQL 版本)
+# 資料庫初始化
 # =============================================================
 def init_db():
     conn = psycopg2.connect(DATABASE_URL, sslmode='require')
     cursor = conn.cursor()
-    # PostgreSQL 的語法和 SQLite 有些微不同
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS favorites (
             id SERIAL PRIMARY KEY,
@@ -50,7 +49,7 @@ def init_db():
 init_db()
 
 # =============================================================
-# 功能函式一：查詢股價
+# 功能函式
 # =============================================================
 def get_stock_price(symbol):
     if not FINNHUB_API_KEY:
@@ -83,9 +82,6 @@ def get_stock_price(symbol):
     except Exception:
         return "處理股價資料時發生內部錯誤。"
 
-# =============================================================
-# 功能函式二：查詢新聞
-# =============================================================
 def get_company_news(symbol):
     if not FINNHUB_API_KEY:
         return "錯誤：尚未設定 Finnhub API Key。"
@@ -111,51 +107,45 @@ def get_company_news(symbol):
     except Exception:
         return "處理新聞資料時發生內部錯誤。"
 
-
 def get_company_profile(symbol):
     if not FINNHUB_API_KEY:
         return "錯誤：尚未設定 Finnhub API Key。"
     
-    url = f"https://finnhub.io/api/v1/stock/profile2?symbol={symbol.upper()}&token={FINNHUB_API_KEY}"
+    url = f"https://finnhub.io/api/v1/stock/metric?symbol={symbol.upper()}&metric=valuation&token={FINNHUB_API_KEY}"
     
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
-        profile = response.json()
+        data = response.json()
         
-        if not profile: # 如果回傳是空的 JSON，代表找不到
-            return f"找不到 {symbol.upper()} 的公司基本資料。"
+        if not data or 'metric' not in data or not data['metric']:
+            return f"找不到 {symbol.upper()} 的基本面資料。"
 
-        # 從 API 回應中提取需要的資訊並格式化
-        name = profile.get('name', 'N/A')
-        exchange = profile.get('exchange', 'N/A')
-        market_cap = profile.get('marketCapitalization', 0)
-        web_url = profile.get('weburl', 'N/A')
-        logo_url = profile.get('logo', 'N/A')
+        metrics = data['metric']
+        pe_ratio = metrics.get('peTTM', 0)
+        pb_ratio = metrics.get('pbTTM', 0)
+        ps_ratio = metrics.get('psTTM', 0)
+        dividend_yield = metrics.get('dividendYieldIndicatedAnnual', 0)
 
         reply_text = (
-            f"🏢 {name} ({symbol.upper()}) 公司資訊：\n"
+            f"📊 {symbol.upper()} 的基本面數據：\n"
             f"--------------------------\n"
-            f"交易所: {exchange}\n"
-            f"市值: {market_cap:,.2f} 百萬\n"
-            f"官方網站: {web_url}\n"
-            f"公司Logo: {logo_url}"
+            f"本益比 (P/E): {pe_ratio:.2f}\n"
+            f"股價淨值比 (P/B): {pb_ratio:.2f}\n"
+            f"股價營收比 (P/S): {ps_ratio:.2f}\n"
+            f"年均殖利率 (%): {dividend_yield:.2f}"
         )
         return reply_text.strip()
         
     except requests.exceptions.RequestException:
-        return "查詢公司資訊時發生網路錯誤。"
+        return "查詢基本面時發生網路錯誤。"
     except Exception:
-        return "處理公司資訊時發生內部錯誤。"
+        return "處理基本面資料時發生內部錯誤。"
 
-# =============================================================
-# 功能函式三：操作資料庫 (PostgreSQL 版本)
-# =============================================================
 def add_to_favorites(user_id, stock_symbol):
     try:
         conn = psycopg2.connect(DATABASE_URL, sslmode='require')
         cursor = conn.cursor()
-        # PostgreSQL 的參數化查詢使用 %s
         cursor.execute("INSERT INTO favorites (user_id, stock_symbol) VALUES (%s, %s)", (user_id, stock_symbol))
         conn.commit()
         cursor.close()
@@ -195,7 +185,7 @@ def callback():
     return 'OK'
 
 # =============================================================
-# 核心訊息處理邏輯 (修正版)
+# 核心訊息處理邏輯
 # =============================================================
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
@@ -217,17 +207,9 @@ def handle_message(event):
    - 看到喜歡的股票，點「加入我的最愛❤️」按鈕即可收藏。
 """
         reply_object = TextSendMessage(text=reply_text)
-    
-    # <<<=== 修正 #2：將 if 改為 elif，確保邏輯連貫 ===>>>
-    elif 'profile' in user_message:
-        stock_symbol = user_message.split(" ")[0].upper()
-        reply_text = get_company_profile(stock_symbol)
-        reply_object = TextSendMessage(text=reply_text)
-
     elif user_message in ['查詢股價', 'stock', 'query']:
         reply_text = "請直接輸入您想查詢的美股代碼喔！\n(例如: NVDA)"
         reply_object = TextSendMessage(text=reply_text)
-        
     elif user_message in ['我的最愛', 'favorite', 'favorites']:
         stock_list = get_favorites(user_id)
         if not stock_list:
@@ -238,29 +220,28 @@ def handle_message(event):
                 price_info = get_stock_price(symbol)
                 reply_text += f"\n{price_info}\n"
         reply_object = TextSendMessage(text=reply_text.strip())
-        
+    elif 'profile' in user_message:
+        stock_symbol = user_message.split(" ")[0].upper()
+        reply_text = get_company_profile(stock_symbol)
+        reply_object = TextSendMessage(text=reply_text)
     elif 'news' in user_message:
         stock_symbol = user_message.split(" ")[0].upper()
         reply_text = get_company_news(stock_symbol)
         reply_object = TextSendMessage(text=reply_text)
-        
     elif 'add ' in user_message:
         stock_symbol = user_message.split(" ")[1].upper()
         reply_text = add_to_favorites(user_id, stock_symbol)
         reply_object = TextSendMessage(text=reply_text)
-        
     else:
         stock_symbol = user_message.upper()
         reply_text = get_stock_price(stock_symbol)
-        
         if "找不到股票代碼" in reply_text or "錯誤" in reply_text:
             reply_object = TextSendMessage(text=reply_text)
         else:
             quick_reply_buttons = QuickReply(
                 items=[
-                    QuickReplyButton(action=MessageAction(label="公司資訊 🏢", text=f"{stock_symbol} profile")),
+                    QuickReplyButton(action=MessageAction(label="基本面 📊", text=f"{stock_symbol} profile")),
                     QuickReplyButton(action=MessageAction(label="最新新聞 📰", text=f"{stock_symbol} news")),
-                    # <<<=== 修正 #1：將 q 改為 Q ===>>>
                     QuickReplyButton(action=MessageAction(label="加入我的最愛 ❤️", text=f"add {stock_symbol}")),
                 ]
             )
