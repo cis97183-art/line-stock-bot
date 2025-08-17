@@ -111,6 +111,43 @@ def get_company_news(symbol):
     except Exception:
         return "處理新聞資料時發生內部錯誤。"
 
+
+def get_company_profile(symbol):
+    if not FINNHUB_API_KEY:
+        return "錯誤：尚未設定 Finnhub API Key。"
+    
+    url = f"https://finnhub.io/api/v1/stock/profile2?symbol={symbol.upper()}&token={FINNHUB_API_KEY}"
+    
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        profile = response.json()
+        
+        if not profile: # 如果回傳是空的 JSON，代表找不到
+            return f"找不到 {symbol.upper()} 的公司基本資料。"
+
+        # 從 API 回應中提取需要的資訊並格式化
+        name = profile.get('name', 'N/A')
+        exchange = profile.get('exchange', 'N/A')
+        market_cap = profile.get('marketCapitalization', 0)
+        web_url = profile.get('weburl', 'N/A')
+        logo_url = profile.get('logo', 'N/A')
+
+        reply_text = (
+            f"🏢 {name} ({symbol.upper()}) 公司資訊：\n"
+            f"--------------------------\n"
+            f"交易所: {exchange}\n"
+            f"市值: {market_cap:,.2f} 百萬\n"
+            f"官方網站: {web_url}\n"
+            f"公司Logo: {logo_url}"
+        )
+        return reply_text.strip()
+        
+    except requests.exceptions.RequestException:
+        return "查詢公司資訊時發生網路錯誤。"
+    except Exception:
+        return "處理公司資訊時發生內部錯誤。"
+
 # =============================================================
 # 功能函式三：操作資料庫 (PostgreSQL 版本)
 # =============================================================
@@ -180,6 +217,11 @@ def handle_message(event):
    - 看到喜歡的股票，點「加入我的最愛❤️」按鈕即可收藏。
 """
         reply_object = TextSendMessage(text=reply_text)
+    if 'profile' in user_message:
+        stock_symbol = user_message.split(" ")[0].upper()
+        reply_text = get_company_profile(stock_symbol)
+        reply_object = TextSendMessage(text=reply_text)
+
     elif user_message in ['查詢股價', 'stock', 'query']:
         reply_text = "請直接輸入您想查詢的美股代碼喔！\n(例如: NVDA)"
         reply_object = TextSendMessage(text=reply_text)
@@ -209,6 +251,7 @@ def handle_message(event):
         else:
             quick_reply_buttons = QuickReply(
                 items=[
+                    quickReplyButton(action=MessageAction(label="公司資訊 🏢", text=f"{stock_symbol} profile")),
                     QuickReplyButton(action=MessageAction(label="最新新聞 📰", text=f"{stock_symbol} news")),
                     QuickReplyButton(action=MessageAction(label="加入我的最愛 ❤️", text=f"add {stock_symbol}")),
                 ]
