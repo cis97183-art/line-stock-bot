@@ -145,7 +145,10 @@ def generate_stock_chart(symbol):
         res = requests.get(url, timeout=15)
         res.raise_for_status()
         data = res.json()
-        if data.get('s') != 'ok' or not data.get('c'): return None
+        if data.get('s') != 'ok' or not data.get('c'):
+            # <<<=== 新增！加上一個 print 訊息來幫助我們除錯 ===>>>
+            print(f"Finnhub API 回傳無效的歷史資料: {data}") 
+            return None
         df = pd.DataFrame(data)
         df['t'] = pd.to_datetime(df['t'], unit='s')
         df = df.set_index('t')
