@@ -2,26 +2,26 @@
 # 程式的開頭：引入所有需要的工具
 # =============================================================
 from dotenv import load_dotenv
-load_dotenv() # 這行必須在最前面，才能讀取 .env 檔案
+load_dotenv()
 
 from flask import Flask, request, abort, send_from_directory
-import uuid # 用來生成獨一無二的檔名
+import uuid
 
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage,
     QuickReply, QuickReplyButton, MessageAction,
-    ImageSendMessage # 引入圖片訊息物件
+    ImageSendMessage
 )
 import requests
 import os
 import datetime
-import psycopg2 # 操作 PostgreSQL
+import psycopg2
 import time
 import pandas as pd
 import matplotlib
-matplotlib.use('Agg') # 設定 Matplotlib 後端，使其在沒有圖形介面的伺服器上也能運作
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 # =============================================================
@@ -31,7 +31,7 @@ LINE_CHANNEL_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
 LINE_CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET')
 FINNHUB_API_KEY = os.environ.get('FINNHUB_API_KEY')
 DATABASE_URL = os.environ.get('DATABASE_URL')
-RENDER_EXTERNAL_URL = os.environ.get('RENDER_EXTERNAL_URL') # 服務的公開網址
+RENDER_EXTERNAL_URL = os.environ.get('RENDER_EXTERNAL_URL')
 
 app = Flask(__name__)
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
@@ -58,7 +58,7 @@ def init_db():
 init_db()
 
 # =============================================================
-# 所有功能函式
+# 功能函式
 # =============================================================
 def get_stock_price(symbol):
     if not FINNHUB_API_KEY: return "錯誤：尚未設定 Finnhub API Key。"
@@ -138,20 +138,26 @@ def get_favorites(user_id):
     except Exception: return []
 
 def generate_stock_chart(symbol):
-    if not FINNHUB_API_KEY: return None
+    if not FINNHUB_API_KEY:
+        print("--- DEBUG: FINNHUB_API_KEY is missing ---")
+        return None
+        
     try:
-        end_time, start_time = int(time.time()), int(time.time() - (30 * 24 * 60 * 60))
+        end_time = int(time.time())
+        start_time = end_time - (30 * 24 * 60 * 60)
         url = f"https://finnhub.io/api/v1/stock/candle?symbol={symbol.upper()}&resolution=D&from={start_time}&to={end_time}&token={FINNHUB_API_KEY}"
         res = requests.get(url, timeout=15)
         res.raise_for_status()
         data = res.json()
+
         if data.get('s') != 'ok' or not data.get('c'):
-            # <<<=== 新增！加上一個 print 訊息來幫助我們除錯 ===>>>
             print(f"Finnhub API 回傳無效的歷史資料: {data}") 
             return None
+
         df = pd.DataFrame(data)
         df['t'] = pd.to_datetime(df['t'], unit='s')
         df = df.set_index('t')
+
         plt.style.use('dark_background')
         fig, ax = plt.subplots(figsize=(12, 8))
         ax.plot(df.index, df['c'], color='cyan', linewidth=2)
@@ -161,13 +167,19 @@ def generate_stock_chart(symbol):
         ax.tick_params(axis='y', colors='white')
         ax.grid(True, linestyle='--', alpha=0.5)
         plt.tight_layout()
-        if not os.path.exists('tmp_charts'): os.makedirs('tmp_charts')
+        
+        if not os.path.exists('tmp_charts'):
+            os.makedirs('tmp_charts')
         filename = f"{uuid.uuid4()}.png"
         filepath = os.path.join('tmp_charts', filename)
         plt.savefig(filepath, facecolor='#1E1E1E')
         plt.close(fig)
+        
         return filename
-    except Exception: return None
+
+    except Exception as e:
+        print(f"圖表生成失敗: {e}") # <<<=== 確保這行存在！
+        return None
 
 # =============================================================
 # Webhook 路由
