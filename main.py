@@ -23,6 +23,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from alpha_vantage.timeseries import TimeSeries # 引入 Alpha Vantage 的工具
 
 # =============================================================
 # 從環境變數讀取金鑰並初始化服務
@@ -32,6 +33,7 @@ LINE_CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET')
 FINNHUB_API_KEY = os.environ.get('FINNHUB_API_KEY')
 DATABASE_URL = os.environ.get('DATABASE_URL')
 RENDER_EXTERNAL_URL = os.environ.get('RENDER_EXTERNAL_URL')
+ALPHA_VANTAGE_API_KEY = os.environ.get('ALPHA_VANTAGE_API_KEY') # 讀取 Alpha Vantage 金鑰
 
 app = Flask(__name__)
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
@@ -138,47 +140,38 @@ def get_favorites(user_id):
     except Exception: return []
 
 def generate_stock_chart(symbol):
-    if not FINNHUB_API_KEY:
-        print("--- DEBUG: FINNHUB_API_KEY is missing ---")
+    if not ALPHA_VANTAGE_API_KEY:
+        print("--- DEBUG: Alpha Vantage API Key 未設定 ---")
         return None
-        
     try:
-        end_time = int(time.time())
-        start_time = end_time - (30 * 24 * 60 * 60)
-        url = f"https://finnhub.io/api/v1/stock/candle?symbol={symbol.upper()}&resolution=D&from={start_time}&to={end_time}&token={FINNHUB_API_KEY}"
-        res = requests.get(url, timeout=15)
-        res.raise_for_status()
-        data = res.json()
-
-        if data.get('s') != 'ok' or not data.get('c'):
-            print(f"Finnhub API 回傳無效的歷史資料: {data}") 
+        ts = TimeSeries(key=ALPHA_VANTAGE_API_KEY, output_format='pandas')
+        data, meta_data = ts.get_daily(symbol=symbol, outputsize='compact')
+        if data.empty:
+            print(f"Alpha Vantage 找不到 {symbol} 的歷史資料")
             return None
 
-        df = pd.DataFrame(data)
-        df['t'] = pd.to_datetime(df['t'], unit='s')
-        df = df.set_index('t')
+        data = data.rename(columns={'1. open': 'open', '2. high': 'high', '3. low': 'low', '4. close': 'close', '5. volume': 'volume'})
+        data = data.sort_index(ascending=True)
+        data_last_30_days = data.tail(30)
 
         plt.style.use('dark_background')
         fig, ax = plt.subplots(figsize=(12, 8))
-        ax.plot(df.index, df['c'], color='cyan', linewidth=2)
+        ax.plot(data_last_30_days.index, data_last_30_days['close'], color='lime', linewidth=2)
         ax.set_title(f'{symbol.upper()} - 30-Day Price Chart', fontsize=20, color='white')
         ax.set_ylabel('Price (USD)', fontsize=14, color='white')
-        ax.tick_params(axis='x', colors='white')
+        ax.tick_params(axis='x', colors='white', rotation=30)
         ax.tick_params(axis='y', colors='white')
         ax.grid(True, linestyle='--', alpha=0.5)
         plt.tight_layout()
         
-        if not os.path.exists('tmp_charts'):
-            os.makedirs('tmp_charts')
+        if not os.path.exists('tmp_charts'): os.makedirs('tmp_charts')
         filename = f"{uuid.uuid4()}.png"
         filepath = os.path.join('tmp_charts', filename)
         plt.savefig(filepath, facecolor='#1E1E1E')
         plt.close(fig)
-        
         return filename
-
     except Exception as e:
-        print(f"圖表生成失敗: {e}") # <<<=== 確保這行存在！
+        print(f"圖表生成失敗 (Alpha Vantage): {e}")
         return None
 
 # =============================================================
@@ -213,8 +206,7 @@ def handle_message(event):
         reply_object = TextSendMessage(text="請直接輸入您想查詢的美股代碼喔！\n(例如: NVDA)")
     elif user_message in ['我的最愛', 'favorite', 'favorites']:
         stock_list = get_favorites(user_id)
-        if not stock_list:
-            reply_text = "您的最愛清單是空的喔！快去新增吧！"
+        if not stock_list: reply_text = "您的最愛清單是空的喔！快去新增吧！"
         else:
             reply_text = "--- 您的最愛清單 ✨ ---\n"
             for symbol in stock_list:
