@@ -1,20 +1,28 @@
 # =============================================================
-# 程式的開頭：引入需要的工具，並從 .env 讀取環境變數
+# 程式的開頭：引入所有需要的工具
 # =============================================================
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv() # 這行必須在最前面，才能讀取 .env 檔案
 
-from flask import Flask, request, abort
+from flask import Flask, request, abort, send_from_directory
+import uuid # 用來生成獨一無二的檔名
+
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage,
-    QuickReply, QuickReplyButton, MessageAction
+    QuickReply, QuickReplyButton, MessageAction,
+    ImageSendMessage # 引入圖片訊息物件
 )
 import requests
 import os
 import datetime
-import psycopg2
+import psycopg2 # 操作 PostgreSQL
+import time
+import pandas as pd
+import matplotlib
+matplotlib.use('Agg') # 設定 Matplotlib 後端，使其在沒有圖形介面的伺服器上也能運作
+import matplotlib.pyplot as plt
 
 # =============================================================
 # 從環境變數讀取金鑰並初始化服務
@@ -23,6 +31,7 @@ LINE_CHANNEL_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
 LINE_CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET')
 FINNHUB_API_KEY = os.environ.get('FINNHUB_API_KEY')
 DATABASE_URL = os.environ.get('DATABASE_URL')
+RENDER_EXTERNAL_URL = os.environ.get('RENDER_EXTERNAL_URL') # 服務的公開網址
 
 app = Flask(__name__)
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
@@ -49,98 +58,59 @@ def init_db():
 init_db()
 
 # =============================================================
-# 功能函式
+# 所有功能函式
 # =============================================================
 def get_stock_price(symbol):
-    if not FINNHUB_API_KEY:
-        return "錯誤：尚未設定 Finnhub API Key。"
+    if not FINNHUB_API_KEY: return "錯誤：尚未設定 Finnhub API Key。"
     url = f"https://finnhub.io/api/v1/quote?symbol={symbol.upper()}&token={FINNHUB_API_KEY}"
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
-        if data.get('c') == 0 and data.get('d') is None:
-            return f"找不到股票代碼 '{symbol.upper()}' 的資料。"
-        current_price = data.get('c', 0)
-        price_change = data.get('d', 0)
-        percent_change = data.get('dp', 0)
-        high_price = data.get('h', 0)
-        low_price = data.get('l', 0)
+        if not data or data.get('c') == 0: return f"找不到股票代碼 '{symbol.upper()}' 的資料。"
+        current_price, price_change, percent_change = data.get('c', 0), data.get('d', 0), data.get('dp', 0)
+        high_price, low_price = data.get('h', 0), data.get('l', 0)
         emoji = "📈" if price_change >= 0 else "📉"
-        return (
-            f"{emoji} {symbol.upper()} 的即時股價資訊：\n"
-            f"--------------------------\n"
-            f"當前價格: ${current_price:,.2f}\n"
-            f"漲跌: ${price_change:,.2f}\n"
-            f"漲跌幅: {percent_change:.2f}%\n"
-            f"最高價: ${high_price:,.2f}\n"
-            f"最低價: ${low_price:,.2f}\n"
-            f"--------------------------"
-        )
-    except requests.exceptions.RequestException:
-        return "查詢股價時發生網路錯誤。"
-    except Exception:
-        return "處理股價資料時發生內部錯誤。"
-
-def get_company_news(symbol):
-    if not FINNHUB_API_KEY:
-        return "錯誤：尚未設定 Finnhub API Key。"
-    today = datetime.date.today()
-    one_week_ago = today - datetime.timedelta(days=7)
-    start_date = one_week_ago.strftime("%Y-%m-%d")
-    end_date = today.strftime("%Y-%m-%d")
-    url = f"https://finnhub.io/api/v1/company-news?symbol={symbol.upper()}&from={start_date}&to={end_date}&token={FINNHUB_API_KEY}"
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        news_list = response.json()
-        if not news_list:
-            return f"找不到 {symbol.upper()} 在過去一週的相關新聞。"
-        reply_text = f"📰 {symbol.upper()} 的最新新聞 (取3則)：\n\n"
-        for news_item in news_list[:3]:
-            headline = news_item.get('headline', '無標題')
-            news_url = news_item.get('url', '#')
-            reply_text += f"🔗 {headline}\n{news_url}\n\n"
-        return reply_text.strip()
-    except requests.exceptions.RequestException:
-        return "查詢新聞時發生網路錯誤。"
-    except Exception:
-        return "處理新聞資料時發生內部錯誤。"
+        return (f"{emoji} {symbol.upper()} 的即時股價資訊：\n"
+                f"--------------------------\n"
+                f"當前價格: ${current_price:,.2f}\n漲跌: ${price_change:,.2f}\n"
+                f"漲跌幅: {percent_change:.2f}%\n最高價: ${high_price:,.2f}\n"
+                f"最低價: ${low_price:,.2f}\n--------------------------")
+    except Exception: return "查詢股價時發生錯誤。"
 
 def get_company_profile(symbol):
-    if not FINNHUB_API_KEY:
-        return "錯誤：尚未設定 Finnhub API Key。"
-    
+    if not FINNHUB_API_KEY: return "錯誤：尚未設定 Finnhub API Key。"
     url = f"https://finnhub.io/api/v1/stock/metric?symbol={symbol.upper()}&metric=valuation&token={FINNHUB_API_KEY}"
-    
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
-        
-        if not data or 'metric' not in data or not data['metric']:
-            return f"找不到 {symbol.upper()} 的基本面資料。"
-
+        if not data or 'metric' not in data or not data['metric']: return f"找不到 {symbol.upper()} 的基本面資料。"
         metrics = data['metric']
         pe_ratio = metrics.get('peTTM', 0)
         pb_ratio = metrics.get('pbTTM', 0)
         ps_ratio = metrics.get('psTTM', 0)
         dividend_yield = metrics.get('dividendYieldIndicatedAnnual', 0)
+        return (f"📊 {symbol.upper()} 的基本面數據：\n"
+                f"--------------------------\n"
+                f"本益比 (P/E): {pe_ratio:.2f}\n股價淨值比 (P/B): {pb_ratio:.2f}\n"
+                f"股價營收比 (P/S): {ps_ratio:.2f}\n年均殖利率 (%): {dividend_yield:.2f}")
+    except Exception: return "查詢基本面時發生錯誤。"
 
-        reply_text = (
-            f"📊 {symbol.upper()} 的基本面數據：\n"
-            f"--------------------------\n"
-            f"本益比 (P/E): {pe_ratio:.2f}\n"
-            f"股價淨值比 (P/B): {pb_ratio:.2f}\n"
-            f"股價營收比 (P/S): {ps_ratio:.2f}\n"
-            f"年均殖利率 (%): {dividend_yield:.2f}"
-        )
+def get_company_news(symbol):
+    if not FINNHUB_API_KEY: return "錯誤：尚未設定 Finnhub API Key。"
+    today, one_week_ago = datetime.date.today(), datetime.date.today() - datetime.timedelta(days=7)
+    url = f"https://finnhub.io/api/v1/company-news?symbol={symbol.upper()}&from={one_week_ago.strftime('%Y-%m-%d')}&to={today.strftime('%Y-%m-%d')}&token={FINNHUB_API_KEY}"
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        news_list = response.json()
+        if not news_list: return f"找不到 {symbol.upper()} 在過去一週的相關新聞。"
+        reply_text = f"📰 {symbol.upper()} 的最新新聞 (取3則)：\n\n"
+        for news_item in news_list[:3]:
+            reply_text += f"🔗 {news_item.get('headline', '無標題')}\n{news_item.get('url', '#')}\n\n"
         return reply_text.strip()
-        
-    except requests.exceptions.RequestException:
-        return "查詢基本面時發生網路錯誤。"
-    except Exception:
-        return "處理基本面資料時發生內部錯誤。"
+    except Exception: return "查詢新聞時發生錯誤。"
 
 def add_to_favorites(user_id, stock_symbol):
     try:
@@ -154,9 +124,7 @@ def add_to_favorites(user_id, stock_symbol):
     except psycopg2.IntegrityError:
         conn.close()
         return f"{stock_symbol} 已經在您的最愛清單中了喔！ 😉"
-    except Exception as e:
-        conn.close()
-        return "新增最愛時發生錯誤，請稍後再試。"
+    except Exception: return "新增最愛時發生錯誤。"
 
 def get_favorites(user_id):
     try:
@@ -166,13 +134,40 @@ def get_favorites(user_id):
         results = cursor.fetchall()
         cursor.close()
         conn.close()
-        stock_list = [item[0] for item in results]
-        return stock_list
-    except Exception as e:
-        return []
+        return [item[0] for item in results]
+    except Exception: return []
+
+def generate_stock_chart(symbol):
+    if not FINNHUB_API_KEY: return None
+    try:
+        end_time, start_time = int(time.time()), int(time.time() - (30 * 24 * 60 * 60))
+        url = f"https://finnhub.io/api/v1/stock/candle?symbol={symbol.upper()}&resolution=D&from={start_time}&to={end_time}&token={FINNHUB_API_KEY}"
+        res = requests.get(url, timeout=15)
+        res.raise_for_status()
+        data = res.json()
+        if data.get('s') != 'ok' or not data.get('c'): return None
+        df = pd.DataFrame(data)
+        df['t'] = pd.to_datetime(df['t'], unit='s')
+        df = df.set_index('t')
+        plt.style.use('dark_background')
+        fig, ax = plt.subplots(figsize=(12, 8))
+        ax.plot(df.index, df['c'], color='cyan', linewidth=2)
+        ax.set_title(f'{symbol.upper()} - 30-Day Price Chart', fontsize=20, color='white')
+        ax.set_ylabel('Price (USD)', fontsize=14, color='white')
+        ax.tick_params(axis='x', colors='white')
+        ax.tick_params(axis='y', colors='white')
+        ax.grid(True, linestyle='--', alpha=0.5)
+        plt.tight_layout()
+        if not os.path.exists('tmp_charts'): os.makedirs('tmp_charts')
+        filename = f"{uuid.uuid4()}.png"
+        filepath = os.path.join('tmp_charts', filename)
+        plt.savefig(filepath, facecolor='#1E1E1E')
+        plt.close(fig)
+        return filename
+    except Exception: return None
 
 # =============================================================
-# Webhook 的進入點
+# Webhook 路由
 # =============================================================
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -184,6 +179,10 @@ def callback():
         abort(400)
     return 'OK'
 
+@app.route('/charts/<filename>')
+def serve_chart(filename):
+    return send_from_directory('tmp_charts', filename)
+
 # =============================================================
 # 核心訊息處理邏輯
 # =============================================================
@@ -194,22 +193,9 @@ def handle_message(event):
     reply_object = None
 
     if user_message in ['使用說明', 'help']:
-        reply_text = """💡 使用說明 💡
-
-你好！我是你的股市小助理，你可以這樣使用我：
-
-1️⃣ **查詢股價**
-   - 直接輸入美股代碼 (例如: AAPL, TSLA)，我會回覆即時股價。
-   - 查詢成功後，可以點擊下方按鈕查看公司資訊、最新新聞或加入我的最愛。
-
-2️⃣ **我的最愛**
-   - 點擊選單上的「我的最愛」，我會列出你所有自選股的報價。
-   - 看到喜歡的股票，點「加入我的最愛❤️」按鈕即可收藏。
-"""
-        reply_object = TextSendMessage(text=reply_text)
+        reply_object = TextSendMessage(text="""💡 使用說明 💡\n\n你好！我是你的股市小助理，你可以這樣使用我：\n\n1️⃣ **查詢股價**\n   - 直接輸入美股代碼 (例如: AAPL, TSLA)，我會回覆即時股價。\n   - 查詢成功後可點擊下方按鈕獲取更多資訊。\n\n2️⃣ **我的最愛**\n   - 點擊選單上的「我的最愛」，我會列出你所有自選股的報價。\n   - 看到喜歡的股票，點「加入我的最愛❤️」按鈕即可收藏。""")
     elif user_message in ['查詢股價', 'stock', 'query']:
-        reply_text = "請直接輸入您想查詢的美股代碼喔！\n(例如: NVDA)"
-        reply_object = TextSendMessage(text=reply_text)
+        reply_object = TextSendMessage(text="請直接輸入您想查詢的美股代碼喔！\n(例如: NVDA)")
     elif user_message in ['我的最愛', 'favorite', 'favorites']:
         stock_list = get_favorites(user_id)
         if not stock_list:
@@ -217,34 +203,38 @@ def handle_message(event):
         else:
             reply_text = "--- 您的最愛清單 ✨ ---\n"
             for symbol in stock_list:
-                price_info = get_stock_price(symbol)
-                reply_text += f"\n{price_info}\n"
+                reply_text += f"\n{get_stock_price(symbol)}\n"
         reply_object = TextSendMessage(text=reply_text.strip())
     elif 'profile' in user_message:
         stock_symbol = user_message.split(" ")[0].upper()
-        reply_text = get_company_profile(stock_symbol)
-        reply_object = TextSendMessage(text=reply_text)
+        reply_object = TextSendMessage(text=get_company_profile(stock_symbol))
     elif 'news' in user_message:
         stock_symbol = user_message.split(" ")[0].upper()
-        reply_text = get_company_news(stock_symbol)
-        reply_object = TextSendMessage(text=reply_text)
+        reply_object = TextSendMessage(text=get_company_news(stock_symbol))
     elif 'add ' in user_message:
         stock_symbol = user_message.split(" ")[1].upper()
-        reply_text = add_to_favorites(user_id, stock_symbol)
-        reply_object = TextSendMessage(text=reply_text)
+        reply_object = TextSendMessage(text=add_to_favorites(user_id, stock_symbol))
+    elif 'chart' in user_message:
+        stock_symbol = user_message.split(" ")[0].upper()
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"正在為您產生 {stock_symbol} 的股價走勢圖，請稍候..."))
+        filename = generate_stock_chart(stock_symbol)
+        if filename and RENDER_EXTERNAL_URL:
+            image_url = f"{RENDER_EXTERNAL_URL}/charts/{filename}"
+            line_bot_api.push_message(user_id, ImageSendMessage(original_content_url=image_url, preview_image_url=image_url))
+        else:
+            line_bot_api.push_message(user_id, TextSendMessage(text=f"抱歉，無法產生 {stock_symbol} 的圖表。"))
+        return
     else:
         stock_symbol = user_message.upper()
         reply_text = get_stock_price(stock_symbol)
-        if "找不到股票代碼" in reply_text or "錯誤" in reply_text:
+        if "找不到" in reply_text or "錯誤" in reply_text:
             reply_object = TextSendMessage(text=reply_text)
         else:
-            quick_reply_buttons = QuickReply(
-                items=[
-                    QuickReplyButton(action=MessageAction(label="基本面 📊", text=f"{stock_symbol} profile")),
-                    QuickReplyButton(action=MessageAction(label="最新新聞 📰", text=f"{stock_symbol} news")),
-                    QuickReplyButton(action=MessageAction(label="加入我的最愛 ❤️", text=f"add {stock_symbol}")),
-                ]
-            )
+            quick_reply_buttons = QuickReply(items=[
+                QuickReplyButton(action=MessageAction(label="股價走勢圖 📈", text=f"{stock_symbol} chart")),
+                QuickReplyButton(action=MessageAction(label="基本面 📊", text=f"{stock_symbol} profile")),
+                QuickReplyButton(action=MessageAction(label="最新新聞 📰", text=f"{stock_symbol} news")),
+                QuickReplyButton(action=MessageAction(label="加入我的最愛 ❤️", text=f"add {stock_symbol}")),])
             reply_object = TextSendMessage(text=reply_text, quick_reply=quick_reply_buttons)
     
     if reply_object:
