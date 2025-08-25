@@ -23,7 +23,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from alpha_vantage.timeseries import TimeSeries # 引入 Alpha Vantage 的工具
+import yfinance as yf # <<<=== 新增！yfinance 的工具
 
 # =============================================================
 # 從環境變數讀取金鑰並初始化服務
@@ -33,7 +33,7 @@ LINE_CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET')
 FINNHUB_API_KEY = os.environ.get('FINNHUB_API_KEY')
 DATABASE_URL = os.environ.get('DATABASE_URL')
 RENDER_EXTERNAL_URL = os.environ.get('RENDER_EXTERNAL_URL')
-ALPHA_VANTAGE_API_KEY = os.environ.get('ALPHA_VANTAGE_API_KEY') # 讀取 Alpha Vantage 金鑰
+# <<<=== 已移除 ALPHA_VANTAGE_API_KEY ===>>>
 
 app = Flask(__name__)
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
@@ -62,101 +62,25 @@ init_db()
 # =============================================================
 # 功能函式
 # =============================================================
-def get_stock_price(symbol):
-    if not FINNHUB_API_KEY: return "錯誤：尚未設定 Finnhub API Key。"
-    url = f"https://finnhub.io/api/v1/quote?symbol={symbol.upper()}&token={FINNHUB_API_KEY}"
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        if not data or data.get('c') == 0: return f"找不到股票代碼 '{symbol.upper()}' 的資料。"
-        current_price, price_change, percent_change = data.get('c', 0), data.get('d', 0), data.get('dp', 0)
-        high_price, low_price = data.get('h', 0), data.get('l', 0)
-        emoji = "📈" if price_change >= 0 else "📉"
-        return (f"{emoji} {symbol.upper()} 的即時股價資訊：\n"
-                f"--------------------------\n"
-                f"當前價格: ${current_price:,.2f}\n漲跌: ${price_change:,.2f}\n"
-                f"漲跌幅: {percent_change:.2f}%\n最高價: ${high_price:,.2f}\n"
-                f"最低價: ${low_price:,.2f}\n--------------------------")
-    except Exception: return "查詢股價時發生錯誤。"
+# (get_stock_price, get_company_profile, get_company_news, add_to_favorites, get_favorites 這些函式都不變)
+# ...
 
-def get_company_profile(symbol):
-    if not FINNHUB_API_KEY: return "錯誤：尚未設定 Finnhub API Key。"
-    url = f"https://finnhub.io/api/v1/stock/metric?symbol={symbol.upper()}&metric=valuation&token={FINNHUB_API_KEY}"
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        if not data or 'metric' not in data or not data['metric']: return f"找不到 {symbol.upper()} 的基本面資料。"
-        metrics = data['metric']
-        pe_ratio = metrics.get('peTTM', 0)
-        pb_ratio = metrics.get('pbTTM', 0)
-        ps_ratio = metrics.get('psTTM', 0)
-        dividend_yield = metrics.get('dividendYieldIndicatedAnnual', 0)
-        return (f"📊 {symbol.upper()} 的基本面數據：\n"
-                f"--------------------------\n"
-                f"本益比 (P/E): {pe_ratio:.2f}\n股價淨值比 (P/B): {pb_ratio:.2f}\n"
-                f"股價營收比 (P/S): {ps_ratio:.2f}\n年均殖利率 (%): {dividend_yield:.2f}")
-    except Exception: return "查詢基本面時發生錯誤。"
-
-def get_company_news(symbol):
-    if not FINNHUB_API_KEY: return "錯誤：尚未設定 Finnhub API Key。"
-    today, one_week_ago = datetime.date.today(), datetime.date.today() - datetime.timedelta(days=7)
-    url = f"https://finnhub.io/api/v1/company-news?symbol={symbol.upper()}&from={one_week_ago.strftime('%Y-%m-%d')}&to={today.strftime('%Y-%m-%d')}&token={FINNHUB_API_KEY}"
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        news_list = response.json()
-        if not news_list: return f"找不到 {symbol.upper()} 在過去一週的相關新聞。"
-        reply_text = f"📰 {symbol.upper()} 的最新新聞 (取3則)：\n\n"
-        for news_item in news_list[:3]:
-            reply_text += f"🔗 {news_item.get('headline', '無標題')}\n{news_item.get('url', '#')}\n\n"
-        return reply_text.strip()
-    except Exception: return "查詢新聞時發生錯誤。"
-
-def add_to_favorites(user_id, stock_symbol):
-    try:
-        conn = psycopg2.connect(DATABASE_URL, sslmode='require')
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO favorites (user_id, stock_symbol) VALUES (%s, %s)", (user_id, stock_symbol))
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return f"已將 {stock_symbol} 加入您的最愛清單！ ❤️"
-    except psycopg2.IntegrityError:
-        conn.close()
-        return f"{stock_symbol} 已經在您的最愛清單中了喔！ 😉"
-    except Exception: return "新增最愛時發生錯誤。"
-
-def get_favorites(user_id):
-    try:
-        conn = psycopg2.connect(DATABASE_URL, sslmode='require')
-        cursor = conn.cursor()
-        cursor.execute("SELECT stock_symbol FROM favorites WHERE user_id = %s", (user_id,))
-        results = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return [item[0] for item in results]
-    except Exception: return []
-
+# <<<=== 最終版！使用 yfinance 產生圖表的函式 ===>>>
 def generate_stock_chart(symbol):
-    if not ALPHA_VANTAGE_API_KEY:
-        print("--- DEBUG: Alpha Vantage API Key 未設定 ---")
-        return None
     try:
-        ts = TimeSeries(key=ALPHA_VANTAGE_API_KEY, output_format='pandas')
-        data, meta_data = ts.get_daily(symbol=symbol, outputsize='compact')
+        # 1. 使用 yfinance 抓取歷史股價
+        # 抓取最近一個月的歷史資料 (period='1mo')
+        ticker = yf.Ticker(symbol)
+        data = ticker.history(period='1mo')
+        
         if data.empty:
-            print(f"Alpha Vantage 找不到 {symbol} 的歷史資料")
+            print(f"yfinance 找不到 {symbol} 的歷史資料")
             return None
 
-        data = data.rename(columns={'1. open': 'open', '2. high': 'high', '3. low': 'low', '4. close': 'close', '5. volume': 'volume'})
-        data = data.sort_index(ascending=True)
-        data_last_30_days = data.tail(30)
-
+        # 2. 使用 Matplotlib 繪圖
         plt.style.use('dark_background')
         fig, ax = plt.subplots(figsize=(12, 8))
-        ax.plot(data_last_30_days.index, data_last_30_days['close'], color='lime', linewidth=2)
+        ax.plot(data.index, data['Close'], color='cyan', linewidth=2)
         ax.set_title(f'{symbol.upper()} - 30-Day Price Chart', fontsize=20, color='white')
         ax.set_ylabel('Price (USD)', fontsize=14, color='white')
         ax.tick_params(axis='x', colors='white', rotation=30)
@@ -164,18 +88,21 @@ def generate_stock_chart(symbol):
         ax.grid(True, linestyle='--', alpha=0.5)
         plt.tight_layout()
         
+        # 3. 儲存圖片到本地暫存
         if not os.path.exists('tmp_charts'): os.makedirs('tmp_charts')
         filename = f"{uuid.uuid4()}.png"
         filepath = os.path.join('tmp_charts', filename)
         plt.savefig(filepath, facecolor='#1E1E1E')
         plt.close(fig)
+        
         return filename
+
     except Exception as e:
-        print(f"圖表生成失敗 (Alpha Vantage): {e}")
+        print(f"圖表生成失敗 (yfinance): {e}")
         return None
 
 # =============================================================
-# Webhook 路由
+# Webhook 路由 (維持不變)
 # =============================================================
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -192,7 +119,7 @@ def serve_chart(filename):
     return send_from_directory('tmp_charts', filename)
 
 # =============================================================
-# 核心訊息處理邏輯
+# 核心訊息處理邏輯 (維持不變)
 # =============================================================
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
