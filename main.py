@@ -25,6 +25,9 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from alpha_vantage.timeseries import TimeSeries # 引入 Alpha Vantage 的工具
 
+# 🔹 新增的：公司名稱查代號功能
+from stock_lookup import get_stock_code  
+
 # =============================================================
 # 從環境變數讀取金鑰並初始化服務
 # =============================================================
@@ -38,6 +41,38 @@ ALPHA_VANTAGE_API_KEY = os.environ.get('ALPHA_VANTAGE_API_KEY') # 讀取 Alpha V
 app = Flask(__name__)
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
+
+# =============================================================
+# 這裡是接收 LINE Bot 訊息的主要地方
+# =============================================================
+@handler.add(MessageEvent, message=TextMessage)
+def handle_message(event):
+    user_text = event.message.text.strip()
+
+    # 🔹 新增邏輯：公司名稱查股票代號
+    stock_code = get_stock_code(user_text)
+    if stock_code:
+        reply_text = f"✅ {user_text} 的股票代號是 {stock_code}"
+        line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=reply_text)
+        )
+        return  # 提前結束，避免繼續跑其他分支
+
+    # 🔹 原本的股價查詢 / K 線圖功能還在這裡
+    # （保留你原本的程式邏輯，例如輸入 AAPL 會查股價）
+
+    reply_text = f"抱歉，找不到「{user_text}」，請輸入正確的公司名稱或股票代號 🙏"
+    line_bot_api.reply_message(
+        event.reply_token,
+        TextSendMessage(text=reply_text)
+    )
+
+# =============================================================
+# Flask 啟動
+# =============================================================
+if __name__ == "__main__":
+    app.run()
 
 # =============================================================
 # 資料庫初始化
