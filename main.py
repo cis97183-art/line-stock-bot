@@ -151,7 +151,7 @@ def generate_stock_chart(symbol):
         data_last_30_days = data.tail(30)
         plt.style.use('dark_background')
         fig, ax = plt.subplots(figsize=(12, 8))
-        ax.plot(data_last_30_days.index, data_last_30_days['close'], color='lime', linewidth=2)
+        ax.plot(data_last_30_days.index, data_last_30_days['Close'], color='lime', linewidth=2)
         ax.set_title(f'{symbol.upper()} - 30-Day Price Chart', fontsize=20, color='white')
         ax.set_ylabel('Price (USD)', fontsize=14, color='white')
         ax.tick_params(axis='x', colors='white', rotation=30)
