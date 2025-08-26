@@ -24,6 +24,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import yfinance as yf # 引入 yfinance 的工具
+from ai_utils import translate_text, summarize_text
 
 # =============================================================
 # 從環境變數讀取金鑰並初始化服務
@@ -102,20 +103,45 @@ def get_company_profile(symbol):
                 f"股價營收比 (P/S): {ps_ratio:.2f}\n年均殖利率 (%): {dividend_yield:.2f}")
     except Exception: return "查詢基本面時發生錯誤。"
 
+# main.py
+
 def get_company_news(symbol):
-    if not FINNHUB_API_KEY: return "錯誤：尚未設定 Finnhub API Key。"
-    today, one_week_ago = datetime.date.today(), datetime.date.today() - datetime.timedelta(days=7)
-    url = f"https://finnhub.io/api/v1/company-news?symbol={symbol.upper()}&from={one_week_ago.strftime('%Y-%m-%d')}&to={today.strftime('%Y-%m-%d')}&token={FINNHUB_API_KEY}"
+    # ... (前半段抓取新聞的程式碼不變) ...
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         news_list = response.json()
-        if not news_list: return f"找不到 {symbol.upper()} 在過去一週的相關新聞。"
-        reply_text = f"📰 {symbol.upper()} 的最新新聞 (取3則)：\n\n"
-        for news_item in news_list[:3]:
-            reply_text += f"🔗 {news_item.get('headline', '無標題')}\n{news_item.get('url', '#')}\n\n"
+
+        if not news_list:
+            return f"找不到 {symbol.upper()} 在過去一週的相關新聞。"
+
+        # <<<=== AI 整合開始 ===>>>
+        reply_text = f"📰 {symbol.upper()} 的 AI 智慧新聞摘要：\n\n"
+
+        # 我們只處理第一則新聞來做示範
+        news_item = news_list[0]
+        headline = news_item.get('headline', '無標題')
+        summary = news_item.get('summary', '無摘要')
+        news_url = news_item.get('url', '#')
+
+        # 1. 翻譯標題
+        translated_headline = translate_text(headline)
+
+        # 2. 統整摘要
+        summarized_content = summarize_text(summary)
+
+        reply_text += f"【標題】\n{translated_headline}\n\n"
+        reply_text += f"【AI 摘要】\n{summarized_content}\n\n"
+        reply_text += f"🔗 原文連結：\n{news_url}"
+        # <<<=== AI 整合結束 ===>>>
+
         return reply_text.strip()
-    except Exception: return "查詢新聞時發生錯誤。"
+
+    except requests.exceptions.RequestException:
+        return "查詢新聞時發生網路錯誤。"
+    except Exception as e:
+        print(f"處理新聞時發生錯誤: {e}")
+        return "處理新聞資料時發生內部錯誤。"
 
 def add_to_favorites(user_id, stock_symbol):
     try:

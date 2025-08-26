@@ -8,3 +8,6 @@ psycopg2-binary
 pandas
 matplotlib
 yfinance
+transformers
+torch
+sentencepiece
