@@ -2,7 +2,7 @@
 # 程式的開頭：引入所有需要的工具
 # =============================================================
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv() # 這行必須在最前面，才能讀取 .env 檔案
 
 from flask import Flask, request, abort, send_from_directory
 import uuid
@@ -23,7 +23,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import yfinance as yf # <<<=== 引入 yfinance 的工具
+import yfinance as yf # 引入 yfinance 的工具
 
 # =============================================================
 # 從環境變數讀取金鑰並初始化服務
@@ -32,8 +32,8 @@ LINE_CHANNEL_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
 LINE_CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET')
 FINNHUB_API_KEY = os.environ.get('FINNHUB_API_KEY')
 DATABASE_URL = os.environ.get('DATABASE_URL')
-RENDER_EXTERNAL_URL = os.environ.get('RENDER_EXTERNAL_URL')
-# <<<=== 已移除 ALPHA_VANTAGE_API_KEY ===>>>
+# <<<=== 將變數名稱從 RENDER_EXTERNAL_URL 改為 SERVICE_PUBLIC_URL ===>>>
+SERVICE_PUBLIC_URL = os.environ.get('SERVICE_PUBLIC_URL')
 
 app = Flask(__name__)
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
@@ -43,24 +43,27 @@ handler = WebhookHandler(LINE_CHANNEL_SECRET)
 # 資料庫初始化
 # =============================================================
 def init_db():
-    conn = psycopg2.connect(DATABASE_URL, sslmode='require')
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS favorites (
-            id SERIAL PRIMARY KEY,
-            user_id VARCHAR(255) NOT NULL,
-            stock_symbol VARCHAR(50) NOT NULL,
-            UNIQUE(user_id, stock_symbol)
-        );
-    ''')
-    conn.commit()
-    cursor.close()
-    conn.close()
+    try:
+        conn = psycopg2.connect(DATABASE_URL, sslmode='require')
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS favorites (
+                id SERIAL PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL,
+                stock_symbol VARCHAR(50) NOT NULL,
+                UNIQUE(user_id, stock_symbol)
+            );
+        ''')
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print(f"資料庫初始化失敗: {e}")
 
 init_db()
 
 # =============================================================
-# 功能函式
+# 所有功能函式
 # =============================================================
 def get_stock_price(symbol):
     if not FINNHUB_API_KEY: return "錯誤：尚未設定 Finnhub API Key。"
@@ -152,7 +155,6 @@ def generate_stock_chart(symbol):
         # 2. 使用 Matplotlib 繪圖
         plt.style.use('dark_background')
         fig, ax = plt.subplots(figsize=(12, 8))
-        # <<<=== 注意：yfinance 回傳的欄位是 'Close' (大寫) ===>>>
         ax.plot(data.index, data['Close'], color='lime', linewidth=2) 
         ax.set_title(f'{symbol.upper()} - 30-Day Price Chart', fontsize=20, color='white')
         ax.set_ylabel('Price (USD)', fontsize=14, color='white')
@@ -201,7 +203,7 @@ def handle_message(event):
     reply_object = None
 
     if user_message in ['使用說明', 'help']:
-        reply_object = TextSendMessage(text="""💡 使用說明 💡\n\n你好！我是你的股市小助理，你可以這樣使用我：\n\n1️⃣ **查詢股價**\n   - 直接輸入美股代碼 (例如: AAPL, TSLA)，我會回覆即時股價。\n   - 查詢成功後可點擊下方按鈕獲取更多資訊。\n\n2️⃣ **我的最愛**\n   - 點擊選單上的「我的最愛」，我會列出你所有自選股的報價。\n   - 看到喜歡的股票，點「加入我的最愛❤️」按鈕即可收藏。""")
+        reply_object = TextSendMessage(text="""💡 使用說明 💡\n\n你好！我是你的股市小助理，你可以這樣使用我：\n\n1️⃣ **查詢股價**\n  - 直接輸入美股代碼 (例如: AAPL, TSLA)，我會回覆即時股價。\n  - 查詢成功後可點擊下方按鈕獲取更多資訊。\n\n2️⃣ **我的最愛**\n  - 點擊選單上的「我的最愛」，我會列出你所有自選股的報價。\n  - 看到喜歡的股票，點「加入我的最愛❤️」按鈕即可收藏。""")
     elif user_message in ['查詢股價', 'stock', 'query']:
         reply_object = TextSendMessage(text="請直接輸入您想查詢的美股代碼喔！\n(例如: NVDA)")
     elif user_message in ['我的最愛', 'favorite', 'favorites']:
@@ -213,8 +215,8 @@ def handle_message(event):
                 reply_text += f"\n{get_stock_price(symbol)}\n"
         reply_object = TextSendMessage(text=reply_text.strip())
     elif 'profile' in user_message:
-            stock_symbol = user_message.split(" ")[0].upper()
-            reply_object = TextSendMessage(text=get_company_profile(stock_symbol))
+        stock_symbol = user_message.split(" ")[0].upper()
+        reply_object = TextSendMessage(text=get_company_profile(stock_symbol))
     elif 'news' in user_message:
         stock_symbol = user_message.split(" ")[0].upper()
         reply_object = TextSendMessage(text=get_company_news(stock_symbol))
@@ -225,8 +227,9 @@ def handle_message(event):
         stock_symbol = user_message.split(" ")[0].upper()
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"正在為您產生 {stock_symbol} 的股價走勢圖，請稍候..."))
         filename = generate_stock_chart(stock_symbol)
-        if filename and RENDER_EXTERNAL_URL:
-            image_url = f"{RENDER_EXTERNAL_URL}/charts/{filename}"
+        # <<<=== 使用新的變數名稱 SERVICE_PUBLIC_URL ===>>>
+        if filename and SERVICE_PUBLIC_URL:
+            image_url = f"{SERVICE_PUBLIC_URL}/charts/{filename}"
             line_bot_api.push_message(user_id, ImageSendMessage(original_content_url=image_url, preview_image_url=image_url))
         else:
             line_bot_api.push_message(user_id, TextSendMessage(text=f"抱歉，無法產生 {stock_symbol} 的圖表。"))
