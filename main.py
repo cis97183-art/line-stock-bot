@@ -119,6 +119,27 @@ def serve_chart(filename):
     return send_from_directory('tmp_charts', filename)
 
 # =============================================================
+# 功能函式一：查詢股價
+# =============================================================
+def get_stock_price(symbol):
+    if not FINNHUB_API_KEY: return "錯誤：尚未設定 Finnhub API Key。"
+    url = f"https://finnhub.io/api/v1/quote?symbol={symbol.upper()}&token={FINNHUB_API_KEY}"
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        if not data or data.get('c') == 0: return f"找不到股票代碼 '{symbol.upper()}' 的資料。"
+        current_price, price_change, percent_change = data.get('c', 0), data.get('d', 0), data.get('dp', 0)
+        high_price, low_price = data.get('h', 0), data.get('l', 0)
+        emoji = "📈" if price_change >= 0 else "📉"
+        return (f"{emoji} {symbol.upper()} 的即時股價資訊：\n"
+                f"--------------------------\n"
+                f"當前價格: ${current_price:,.2f}\n漲跌: ${price_change:,.2f}\n"
+                f"漲跌幅: {percent_change:.2f}%\n最高價: ${high_price:,.2f}\n"
+                f"最低價: ${low_price:,.2f}\n--------------------------")
+    except Exception: return "查詢股價時發生錯誤。"
+
+# =============================================================
 # 核心訊息處理邏輯 (維持不變)
 # =============================================================
 @handler.add(MessageEvent, message=TextMessage)
