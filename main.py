@@ -23,7 +23,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import yfinance as yf
+import yfinance as yf # <<<=== 引入 yfinance 的工具
 
 # =============================================================
 # 從環境變數讀取金鑰並初始化服務
@@ -33,7 +33,7 @@ LINE_CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET')
 FINNHUB_API_KEY = os.environ.get('FINNHUB_API_KEY')
 DATABASE_URL = os.environ.get('DATABASE_URL')
 RENDER_EXTERNAL_URL = os.environ.get('RENDER_EXTERNAL_URL')
-ALPHA_VANTAGE_API_KEY = os.environ.get('ALPHA_VANTAGE_API_KEY') # 雖然我們換成了 yfinance，但保留這個以防未來需要
+# <<<=== 已移除 ALPHA_VANTAGE_API_KEY ===>>>
 
 app = Flask(__name__)
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
@@ -60,7 +60,7 @@ def init_db():
 init_db()
 
 # =============================================================
-# 所有功能函式
+# 功能函式
 # =============================================================
 def get_stock_price(symbol):
     if not FINNHUB_API_KEY: return "錯誤：尚未設定 Finnhub API Key。"
@@ -141,29 +141,35 @@ def get_favorites(user_id):
 
 def generate_stock_chart(symbol):
     try:
+        # 1. 使用 yfinance 抓取歷史股價
         ticker = yf.Ticker(symbol)
         data = ticker.history(period='1mo')
+        
         if data.empty:
             print(f"yfinance 找不到 {symbol} 的歷史資料")
             return None
-        data = data.rename(columns={'1. open': 'open', '2. high': 'high', '3. low': 'low', '4. close': 'close', '5. volume': 'volume'})
-        data = data.sort_index(ascending=True)
-        data_last_30_days = data.tail(30)
+
+        # 2. 使用 Matplotlib 繪圖
         plt.style.use('dark_background')
         fig, ax = plt.subplots(figsize=(12, 8))
-        ax.plot(data_last_30_days.index, data_last_30_days['Close'], color='lime', linewidth=2)
+        # <<<=== 注意：yfinance 回傳的欄位是 'Close' (大寫) ===>>>
+        ax.plot(data.index, data['Close'], color='lime', linewidth=2) 
         ax.set_title(f'{symbol.upper()} - 30-Day Price Chart', fontsize=20, color='white')
         ax.set_ylabel('Price (USD)', fontsize=14, color='white')
         ax.tick_params(axis='x', colors='white', rotation=30)
         ax.tick_params(axis='y', colors='white')
         ax.grid(True, linestyle='--', alpha=0.5)
         plt.tight_layout()
+        
+        # 3. 儲存圖片到本地暫存
         if not os.path.exists('tmp_charts'): os.makedirs('tmp_charts')
         filename = f"{uuid.uuid4()}.png"
         filepath = os.path.join('tmp_charts', filename)
         plt.savefig(filepath, facecolor='#1E1E1E')
         plt.close(fig)
+        
         return filename
+
     except Exception as e:
         print(f"圖表生成失敗 (yfinance): {e}")
         return None
@@ -207,8 +213,8 @@ def handle_message(event):
                 reply_text += f"\n{get_stock_price(symbol)}\n"
         reply_object = TextSendMessage(text=reply_text.strip())
     elif 'profile' in user_message:
-        stock_symbol = user_message.split(" ")[0].upper()
-        reply_object = TextSendMessage(text=get_company_profile(stock_symbol))
+            stock_symbol = user_message.split(" ")[0].upper()
+            reply_object = TextSendMessage(text=get_company_profile(stock_symbol))
     elif 'news' in user_message:
         stock_symbol = user_message.split(" ")[0].upper()
         reply_object = TextSendMessage(text=get_company_news(stock_symbol))
