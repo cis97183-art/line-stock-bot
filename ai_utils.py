@@ -1,5 +1,6 @@
 # ai_utils.py
 import os
+import logging  # <<<=== 修正一：在這裡也引入 logging 模組！
 import google.generativeai as genai
 
 # 從環境變數讀取 API Key 並進行設定
@@ -14,15 +15,16 @@ def ask_gemini_for_news(headline, summary):
     if not GEMINI_API_KEY:
         return "錯誤：尚未設定 Gemini API Key。"
 
-    # 初始化 Gemini Pro 模型
     generation_config = {
       "temperature": 0.2,
       "top_p": 1,
       "top_k": 1,
       "max_output_tokens": 2048,
     }
-    # <<<=== 修正這裡的模型名稱！ ===>>>
-    model = genai.GenerativeModel(model_name="gemini-1.0-pro",
+    
+    # <<<=== 修正二：更換為最新的 Gemini 1.5 Flash 模型！ ===>>>
+    # 這個模型既快速又強大，是目前的首選。
+    model = genai.GenerativeModel(model_name="gemini-1.5-flash-latest",
                                   generation_config=generation_config)
 
     # 提示工程 (Prompt Engineering)
@@ -51,8 +53,6 @@ def ask_gemini_for_news(headline, summary):
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
-        # <<<=== 恢復為正式版的錯誤處理 ===>>>
-        # 我們已經完成偵錯，現在改回對使用者友善的訊息
-        # 同時在後端日誌中記錄詳細錯誤
+        # 現在 logging 模組被正確引入了，這個日誌可以正常運作
         logging.error(f"呼叫 Gemini API 時發生錯誤: {e}", exc_info=True)
         return "呼叫 AI 時發生錯誤，請稍後再試。"
