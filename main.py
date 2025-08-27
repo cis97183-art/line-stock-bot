@@ -26,7 +26,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import yfinance as yf
-from ai_utils import translate_text, summarize_text
+from ai_utils import ask_gemini_for_news
 
 # <<<=== 新增！強制設定日誌記錄器 ===>>>
 logging.basicConfig(
@@ -125,24 +125,25 @@ def get_company_news(symbol):
     today, one_week_ago = datetime.date.today(), datetime.date.today() - datetime.timedelta(days=7)
     url = f"https://finnhub.io/api/v1/company-news?symbol={symbol.upper()}&from={one_week_ago.strftime('%Y-%m-%d')}&to={today.strftime('%Y-%m-%d')}&token={FINNHUB_API_KEY}"
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=15) # 稍微增加超時時間
         response.raise_for_status()
         news_list = response.json()
         if not news_list: return f"找不到 {symbol.upper()} 在過去一週的相關新聞。"
-        
+
         news_item = news_list[0]
         headline = news_item.get('headline', '無標題')
         summary = news_item.get('summary', '無摘要')
-        news_url = news_item.get('url', '#') # <<< 我們定義的變數是 news_url
+        news_url = news_item.get('url', '#')
 
-        translated_headline = translate_text(headline)
-        summarized_content = summarize_text(summary)
+        # <<<=== 使用全新的 Gemini 函式 ===>>>
+        # 將原始的英文標題和摘要內容傳遞給 Gemini
+        ai_response = ask_gemini_for_news(headline, summary)
 
+        # 將 Gemini 回傳的完整內容，加上原文連結，組合起來
         reply_text = (f"📰 {symbol.upper()} 的 AI 智慧新聞摘要：\n\n"
-                      f"【標題】\n{translated_headline}\n\n"
-                      f"【AI 摘要】\n{summarized_content}\n\n"
-                      f"🔗 原文連結：\n{news_url}") # <<< 確認這裡也使用 news_url
-        
+                      f"{ai_response}\n\n"
+                      f"🔗 原文連結：\n{news_url}")
+
         return reply_text.strip()
     except Exception as e:
         logging.error(f"處理新聞資料時發生錯誤 for symbol {symbol}: {e}", exc_info=True)
