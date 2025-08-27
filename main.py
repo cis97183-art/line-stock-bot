@@ -7,6 +7,7 @@ load_dotenv()
 from flask import Flask, request, abort, send_from_directory
 import uuid
 import logging # <<<=== 引入 logging 模組
+import sys
 
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -26,6 +27,15 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import yfinance as yf
 from ai_utils import translate_text, summarize_text
+
+# <<<=== 新增！強制設定日誌記錄器 ===>>>
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    stream=sys.stdout,
+    force=True
+)
+# <<<================================>>>
 
 # =============================================================
 # 從環境變數讀取金鑰並初始化服務
