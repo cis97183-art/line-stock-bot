@@ -1,45 +1,59 @@
 # ai_utils.py
-from transformers import pipeline
-import datetime
+import os
+import google.generativeai as genai
 
-# 這些 print 訊息在雲端第一次部署時有助於偵錯，部署成功後可以移除
-print(f"[{datetime.datetime.now()}] 1. 開始載入 ai_utils.py 模組...")
+# 從環境變數讀取 API Key 並進行設定
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
-# 初始化模型
-# --- 使用輕量級的英翻中模型 ---
-print(f"[{datetime.datetime.now()}] 2. 準備初始化翻譯模型 (translator)...")
-translator = pipeline("translation", model="Helsinki-NLP/opus-mt-en-zh")
-print(f"[{datetime.datetime.now()}] 3. 翻譯模型初始化完成！")
-
-
-# --- 使用輕量級的摘要模型 (DistilBART) ---
-print(f"[{datetime.datetime.now()}] 4. 準備初始化摘要模型 (summarizer)...")
-summarizer = pipeline("summarization", model="sshleifer/distilbart-cnn-12-6")
-print(f"[{datetime.datetime.now()}] 5. 摘要模型初始化完成！")
-
-
-def translate_text(text_to_translate):
+def ask_gemini_for_news(headline, summary):
     """
-    將英文文本翻譯成中文。
+    使用一個精心設計的 prompt 來同時完成翻譯和摘要。
+    :param headline: 英文新聞標題
+    :param summary: 英文新聞內容
+    :return: 由 Gemini 生成的格式化中文回應
     """
-    if not text_to_translate:
-        return ""
+    if not GEMINI_API_KEY:
+        return "錯誤：尚未設定 Gemini API Key。"
+
+    # 初始化 Gemini Pro 模型
+    # 將模型生成設定為更穩定、較少創意的模式
+    generation_config = {
+      "temperature": 0.2,
+      "top_p": 1,
+      "top_k": 1,
+      "max_output_tokens": 2048,
+    }
+    model = genai.GenerativeModel(model_name="gemini-pro",
+                                  generation_config=generation_config)
+
+    # --- 這就是「提示工程 (Prompt Engineering)」---
+    # 我們在一個 prompt 中，給予 AI 清晰的角色、任務和格式指令
+    prompt = f"""
+    你現在是一位專業的美股新聞分析師，在為一個股市 Line Bot 提供服務。
+    請根據以下提供的英文新聞標題和內容，完成兩項任務：
+    1. 將標題翻譯成專業且吸引人的繁體中文。
+    2. 用條列式的方式，以繁體中文總結新聞內容的 2-3 個重點。
+
+    請嚴格按照以下格式回覆，不要包含任何額外的前言或結語：
+
+    【標題】
+    [此處填寫翻譯後的中文標題]
+
+    【AI 摘要】
+    - [此處填寫第一個重點]
+    - [此處填寫第二個重點]
+    - [此處填寫第三個重點，如果有的話]
+
+    ---
+    英文新聞標題: "{headline}"
+    英文新聞內容: "{summary}"
+    """
+
     try:
-        translated = translator(text_to_translate)
-        return translated[0]['translation_text']
+        response = model.generate_content(prompt)
+        return response.text
     except Exception as e:
-        print(f"翻譯時發生錯誤: {e}")
-        return text_to_translate
-
-def summarize_text(text_to_summarize, min_length=20, max_length=100):
-    """
-    將長文本生成摘要。
-    """
-    if not text_to_summarize:
-        return "無法生成摘要，內容為空。"
-    try:
-        summary = summarizer(text_to_summarize, max_length=max_length, min_length=min_length, do_sample=False)
-        return summary[0]['summary_text']
-    except Exception as e:
-        print(f"生成摘要時發生錯誤: {e}")
-        return "處理摘要時發生錯誤。"
+        print(f"呼叫 Gemini API 時發生錯誤: {e}")
+        return "呼叫 AI 時發生錯誤，請稍後再試。"
