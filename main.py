@@ -2,10 +2,11 @@
 # 程式的開頭：引入所有需要的工具
 # =============================================================
 from dotenv import load_dotenv
-load_dotenv() # 這行必須在最前面，才能讀取 .env 檔案
+load_dotenv()
 
 from flask import Flask, request, abort, send_from_directory
 import uuid
+import logging # <<<=== 引入 logging 模組
 
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
@@ -23,7 +24,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import yfinance as yf # 引入 yfinance 的工具
+import yfinance as yf
 from ai_utils import translate_text, summarize_text
 
 # =============================================================
@@ -33,7 +34,6 @@ LINE_CHANNEL_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
 LINE_CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET')
 FINNHUB_API_KEY = os.environ.get('FINNHUB_API_KEY')
 DATABASE_URL = os.environ.get('DATABASE_URL')
-# <<<=== 將變數名稱從 RENDER_EXTERNAL_URL 改為 SERVICE_PUBLIC_URL ===>>>
 SERVICE_PUBLIC_URL = os.environ.get('SERVICE_PUBLIC_URL')
 
 app = Flask(__name__)
@@ -59,7 +59,8 @@ def init_db():
         cursor.close()
         conn.close()
     except Exception as e:
-        print(f"資料庫初始化失敗: {e}")
+        # <<<=== 將 print 改為 logging.error ===>>>
+        logging.error(f"資料庫初始化失敗: {e}", exc_info=True)
 
 init_db()
 
@@ -82,7 +83,10 @@ def get_stock_price(symbol):
                 f"當前價格: ${current_price:,.2f}\n漲跌: ${price_change:,.2f}\n"
                 f"漲跌幅: {percent_change:.2f}%\n最高價: ${high_price:,.2f}\n"
                 f"最低價: ${low_price:,.2f}\n--------------------------")
-    except Exception: return "查詢股價時發生錯誤。"
+    except Exception as e:
+        # <<<=== 將 print 改為 logging.error ===>>>
+        logging.error(f"查詢股價時發生錯誤 for symbol {symbol}: {e}", exc_info=True)
+        return "查詢股價時發生錯誤。"
 
 def get_company_profile(symbol):
     if not FINNHUB_API_KEY: return "錯誤：尚未設定 Finnhub API Key。"
@@ -101,46 +105,38 @@ def get_company_profile(symbol):
                 f"--------------------------\n"
                 f"本益比 (P/E): {pe_ratio:.2f}\n股價淨值比 (P/B): {pb_ratio:.2f}\n"
                 f"股價營收比 (P/S): {ps_ratio:.2f}\n年均殖利率 (%): {dividend_yield:.2f}")
-    except Exception: return "查詢基本面時發生錯誤。"
-
-# main.py
+    except Exception as e:
+        # <<<=== 將 print 改為 logging.error ===>>>
+        logging.error(f"查詢基本面時發生錯誤 for symbol {symbol}: {e}", exc_info=True)
+        return "查詢基本面時發生錯誤。"
 
 def get_company_news(symbol):
-    # ... (前半段抓取新聞的程式碼不變) ...
+    if not FINNHUB_API_KEY: return "錯誤：尚未設定 Finnhub API Key。"
+    today, one_week_ago = datetime.date.today(), datetime.date.today() - datetime.timedelta(days=7)
+    url = f"https://finnhub.io/api/v1/company-news?symbol={symbol.upper()}&from={one_week_ago.strftime('%Y-%m-%d')}&to={today.strftime('%Y-%m-%d')}&token={FINNHUB_API_KEY}"
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         news_list = response.json()
-
-        if not news_list:
-            return f"找不到 {symbol.upper()} 在過去一週的相關新聞。"
-
-        # <<<=== AI 整合開始 ===>>>
-        reply_text = f"📰 {symbol.upper()} 的 AI 智慧新聞摘要：\n\n"
-
-        # 我們只處理第一則新聞來做示範
+        if not news_list: return f"找不到 {symbol.upper()} 在過去一週的相關新聞。"
+        
         news_item = news_list[0]
         headline = news_item.get('headline', '無標題')
         summary = news_item.get('summary', '無摘要')
         news_url = news_item.get('url', '#')
 
-        # 1. 翻譯標題
         translated_headline = translate_text(headline)
-
-        # 2. 統整摘要
         summarized_content = summarize_text(summary)
 
-        reply_text += f"【標題】\n{translated_headline}\n\n"
-        reply_text += f"【AI 摘要】\n{summarized_content}\n\n"
-        reply_text += f"🔗 原文連結：\n{news_url}"
-        # <<<=== AI 整合結束 ===>>>
-
+        reply_text = (f"📰 {symbol.upper()} 的 AI 智慧新聞摘要：\n\n"
+                      f"【標題】\n{translated_headline}\n\n"
+                      f"【AI 摘要】\n{summarized_content}\n\n"
+                      f"🔗 原文連結：\n{news_url}")
+        
         return reply_text.strip()
-
-    except requests.exceptions.RequestException:
-        return "查詢新聞時發生網路錯誤。"
     except Exception as e:
-        print(f"處理新聞時發生錯誤: {e}")
+        # <<<=== 將 print 改為 logging.error ===>>>
+        logging.error(f"處理新聞資料時發生錯誤 for symbol {symbol}: {e}", exc_info=True)
         return "處理新聞資料時發生內部錯誤。"
 
 def add_to_favorites(user_id, stock_symbol):
@@ -155,7 +151,10 @@ def add_to_favorites(user_id, stock_symbol):
     except psycopg2.IntegrityError:
         conn.close()
         return f"{stock_symbol} 已經在您的最愛清單中了喔！ 😉"
-    except Exception: return "新增最愛時發生錯誤。"
+    except Exception as e:
+        # <<<=== 將 print 改為 logging.error ===>>>
+        logging.error(f"新增最愛時發生錯誤 for user {user_id}, symbol {stock_symbol}: {e}", exc_info=True)
+        return "新增最愛時發生錯誤。"
 
 def get_favorites(user_id):
     try:
@@ -166,19 +165,16 @@ def get_favorites(user_id):
         cursor.close()
         conn.close()
         return [item[0] for item in results]
-    except Exception: return []
+    except Exception as e:
+        # <<<=== 將 print 改為 logging.error ===>>>
+        logging.error(f"獲取最愛列表時發生錯誤 for user {user_id}: {e}", exc_info=True)
+        return []
 
 def generate_stock_chart(symbol):
     try:
-        # 1. 使用 yfinance 抓取歷史股價
         ticker = yf.Ticker(symbol)
         data = ticker.history(period='1mo')
-        
-        if data.empty:
-            print(f"yfinance 找不到 {symbol} 的歷史資料")
-            return None
-
-        # 2. 使用 Matplotlib 繪圖
+        if data.empty: return None
         plt.style.use('dark_background')
         fig, ax = plt.subplots(figsize=(12, 8))
         ax.plot(data.index, data['Close'], color='lime', linewidth=2) 
@@ -188,18 +184,15 @@ def generate_stock_chart(symbol):
         ax.tick_params(axis='y', colors='white')
         ax.grid(True, linestyle='--', alpha=0.5)
         plt.tight_layout()
-        
-        # 3. 儲存圖片到本地暫存
         if not os.path.exists('tmp_charts'): os.makedirs('tmp_charts')
         filename = f"{uuid.uuid4()}.png"
         filepath = os.path.join('tmp_charts', filename)
         plt.savefig(filepath, facecolor='#1E1E1E')
         plt.close(fig)
-        
         return filename
-
     except Exception as e:
-        print(f"圖表生成失敗 (yfinance): {e}")
+        # <<<=== 將 print 改為 logging.error ===>>>
+        logging.error(f"圖表生成失敗 for symbol {symbol}: {e}", exc_info=True)
         return None
 
 # =============================================================
@@ -253,7 +246,6 @@ def handle_message(event):
         stock_symbol = user_message.split(" ")[0].upper()
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"正在為您產生 {stock_symbol} 的股價走勢圖，請稍候..."))
         filename = generate_stock_chart(stock_symbol)
-        # <<<=== 使用新的變數名稱 SERVICE_PUBLIC_URL ===>>>
         if filename and SERVICE_PUBLIC_URL:
             image_url = f"{SERVICE_PUBLIC_URL}/charts/{filename}"
             line_bot_api.push_message(user_id, ImageSendMessage(original_content_url=image_url, preview_image_url=image_url))
