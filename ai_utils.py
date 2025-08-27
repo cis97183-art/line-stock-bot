@@ -10,15 +10,12 @@ if GEMINI_API_KEY:
 def ask_gemini_for_news(headline, summary):
     """
     使用一個精心設計的 prompt 來同時完成翻譯和摘要。
-    :param headline: 英文新聞標題
-    :param summary: 英文新聞內容
-    :return: 由 Gemini 生成的格式化中文回應
+    在偵錯模式下，會直接回傳詳細的 API 錯誤訊息。
     """
     if not GEMINI_API_KEY:
         return "錯誤：尚未設定 Gemini API Key。"
 
     # 初始化 Gemini Pro 模型
-    # 將模型生成設定為更穩定、較少創意的模式
     generation_config = {
       "temperature": 0.2,
       "top_p": 1,
@@ -28,8 +25,7 @@ def ask_gemini_for_news(headline, summary):
     model = genai.GenerativeModel(model_name="gemini-pro",
                                   generation_config=generation_config)
 
-    # --- 這就是「提示工程 (Prompt Engineering)」---
-    # 我們在一個 prompt 中，給予 AI 清晰的角色、任務和格式指令
+    # 提示工程 (Prompt Engineering)
     prompt = f"""
     你現在是一位專業的美股新聞分析師，在為一個股市 Line Bot 提供服務。
     請根據以下提供的英文新聞標題和內容，完成兩項任務：
@@ -55,5 +51,12 @@ def ask_gemini_for_news(headline, summary):
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
-        print(f"呼叫 Gemini API 時發生錯誤: {e}")
-        return "呼叫 AI 時發生錯誤，請稍後再試。"
+        # <<<=== 偵錯模式：直接回傳詳細錯誤 ===>>>
+        # 建立一個包含詳細錯誤的訊息
+        error_message = f"Gemini API 呼叫失敗，詳細錯誤：\n\n{str(e)}"
+        
+        # 我們仍然在後端印出日誌，以防萬一
+        print(error_message) 
+        
+        # 直接將詳細的錯誤訊息回傳給使用者（也就是我們自己）
+        return error_message
