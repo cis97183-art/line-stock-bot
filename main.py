@@ -133,7 +133,7 @@ def get_company_news(symbol):
         news_item = news_list[0]
         headline = news_item.get('headline', '無標題')
         summary = news_item.get('summary', '無摘要')
-        news_url = news_item.get('url', '#')
+        news_url = news_item.get('url', '#') # <<< 我們定義的變數是 news_url
 
         translated_headline = translate_text(headline)
         summarized_content = summarize_text(summary)
@@ -141,11 +141,10 @@ def get_company_news(symbol):
         reply_text = (f"📰 {symbol.upper()} 的 AI 智慧新聞摘要：\n\n"
                       f"【標題】\n{translated_headline}\n\n"
                       f"【AI 摘要】\n{summarized_content}\n\n"
-                      f"🔗 原文連結：\n{news_url}")
+                      f"🔗 原文連結：\n{news_url}") # <<< 確認這裡也使用 news_url
         
         return reply_text.strip()
     except Exception as e:
-        # <<<=== 將 print 改為 logging.error ===>>>
         logging.error(f"處理新聞資料時發生錯誤 for symbol {symbol}: {e}", exc_info=True)
         return "處理新聞資料時發生內部錯誤。"
 
