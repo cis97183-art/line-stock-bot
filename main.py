@@ -27,6 +27,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import yfinance as yf
 from ai_utils import ask_gemini_for_news
+from yahoo_fin import stock_info as si
 
 # <<<=== 新增！強制設定日誌記錄器 ===>>>
 logging.basicConfig(
@@ -97,6 +98,40 @@ def get_stock_price(symbol):
         # <<<=== 將 print 改為 logging.error ===>>>
         logging.error(f"查詢股價時發生錯誤 for symbol {symbol}: {e}", exc_info=True)
         return "查詢股價時發生錯誤。"
+
+# <<<=== 新增！查詢熱門股的功能 ===>>>
+def get_hot_stocks():
+    """
+    使用 yahoo_fin 取得當日美股交易量最大的前10名股票，並查詢報價。
+    """
+    try:
+        reply_text = "🔥 --- 美股即時交易量 Top 10 --- 🔥"
+        
+        # 1. 使用 yahoo_fin 取得交易最活躍的股票列表
+        most_active = si.get_most_active()
+        
+        # 2. 從 DataFrame 中取出股票代碼欄位 ('Symbol') 的前10名
+        top_10_symbols = most_active['Symbol'].head(10).tolist()
+
+        # 3. 遍歷列表，呼叫現有函式來獲取單一股票的簡化資訊
+        for symbol in top_10_symbols:
+            price_info = get_stock_price(symbol)
+            try:
+                lines = price_info.split('\n')
+                price_line = lines[2]
+                change_line = lines[4]
+                emoji = "📈" if price_change >= 0 else "📉" # 沿用 get_stock_price 裡的變數
+                
+                reply_text += f"\n- **{symbol}**: {price_line.split(':')[1].strip()} ({change_line.split(':')[1].strip()})"
+            except (IndexError, NameError, AttributeError):
+                reply_text += f"\n- **{symbol}**: {price_info}"
+        
+        return reply_text.strip()
+
+    except Exception as e:
+        logging.error(f"獲取熱門股時發生錯誤: {e}", exc_info=True)
+        return "查詢熱門股時發生錯誤，請稍後再試。"
+# <<<================================>>>
 
 def get_company_profile(symbol):
     if not FINNHUB_API_KEY: return "錯誤：尚未設定 Finnhub API Key。"
@@ -205,6 +240,8 @@ def generate_stock_chart(symbol):
         logging.error(f"圖表生成失敗 for symbol {symbol}: {e}", exc_info=True)
         return None
 
+
+
 # =============================================================
 # Webhook 路由
 # =============================================================
@@ -231,10 +268,9 @@ def handle_message(event):
     user_message = event.message.text.lower()
     reply_object = None
 
-    if user_message in ['使用說明', 'help']:
-        reply_object = TextSendMessage(text="""💡 使用說明 💡\n\n你好！我是你的股市小助理，你可以這樣使用我：\n\n1️⃣ **查詢股價**\n  - 直接輸入美股代碼 (例如: AAPL, TSLA)，我會回覆即時股價。\n  - 查詢成功後可點擊下方按鈕獲取更多資訊。\n\n2️⃣ **我的最愛**\n  - 點擊選單上的「我的最愛」，我會列出你所有自選股的報價。\n  - 看到喜歡的股票，點「加入我的最愛❤️」按鈕即可收藏。""")
-    elif user_message in ['查詢股價', 'stock', 'query']:
-        reply_object = TextSendMessage(text="請直接輸入您想查詢的美股代碼喔！\n(例如: NVDA)")
+    if user_message in ['使用說明', 'help', '查詢股價', 'stock', 'query']:
+        reply_text = "請直接輸入您想查詢的美股代碼 (例如: NVDA)，或點擊下方選單功能。"
+        reply_object = TextSendMessage(text=reply_text)
     elif user_message in ['我的最愛', 'favorite', 'favorites']:
         stock_list = get_favorites(user_id)
         if not stock_list: reply_text = "您的最愛清單是空的喔！快去新增吧！"
@@ -243,6 +279,12 @@ def handle_message(event):
             for symbol in stock_list:
                 reply_text += f"\n{get_stock_price(symbol)}\n"
         reply_object = TextSendMessage(text=reply_text.strip())
+    
+    # <<<=== 新增！處理熱門股指令 ===>>>
+    elif user_message in ['熱門股', 'hot stocks', 'hot']:
+        reply_object = TextSendMessage(text=get_hot_stocks())
+    # <<<===========================>>>
+
     elif 'profile' in user_message:
         stock_symbol = user_message.split(" ")[0].upper()
         reply_object = TextSendMessage(text=get_company_profile(stock_symbol))

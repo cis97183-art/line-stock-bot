@@ -9,3 +9,4 @@ pandas
 matplotlib
 yfinance
 google-generativeai
+yahoo_fin
