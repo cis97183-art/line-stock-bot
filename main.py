@@ -240,7 +240,7 @@ def serve_chart(filename):
     return send_from_directory('tmp_charts', filename)
 
 # =============================================================
-# 核心訊息處理邏輯 (已整合 rank, vol, stock_lookup)
+# 核心訊息處理邏輯 (已整合 rank, vol 的 yahoo_fin 免費版)
 # =============================================================
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
@@ -275,11 +275,13 @@ def handle_message(event):
         reply_object = TextSendMessage(text=get_hot_stocks(), quick_reply=common_quick_reply_buttons)
         
     elif user_message in ['熱門成交量', 'volume']:
-        reply_text = get_top_volume_stocks(FINNHUB_API_URL, FINNHUB_API_KEY)
+        # 改為呼叫 vol.py 中使用 yahoo_fin 的函式，不再需要 API 金鑰
+        reply_text = get_top_volume_stocks()
         reply_object = TextSendMessage(text=reply_text, quick_reply=common_quick_reply_buttons)
         
     elif user_message in ['漲幅排名', 'gainers']:
-        reply_text = get_top_gainers(FINNHUB_API_URL, FINNHUB_API_KEY)
+        # 改為呼叫 rank.py 中使用 yahoo_fin 的函式，不再需要 API 金鑰
+        reply_text = get_top_gainers()
         reply_object = TextSendMessage(text=reply_text, quick_reply=common_quick_reply_buttons)
         
     elif 'profile' in user_message:
