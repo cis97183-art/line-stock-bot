@@ -7,8 +7,12 @@ WORKDIR /app
 # 將需求清單檔案複製到工作目錄中
 COPY requirements.txt .
 
-# 安裝程式碼所需的所有 Python 套件
-RUN pip install --no-cache-dir -r requirements.txt
+# <<<=== 修改這裡，強制清除快取並重新安裝 ===>>>
+# 我們加入了 "pip install --upgrade pip &&" 這個新指令
+# 任何對 RUN 指令的修改都會讓 Cloud Build 快取失效，強制重新執行
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+# <<<========================================>>>
 
 # 將專案中的所有檔案複製到工作目錄中
 COPY . .
@@ -17,5 +21,4 @@ COPY . .
 ENV PORT 8080
 
 # 啟動應用程式的指令
-# 我們使用 gunicorn 來啟動 Flask App，這是正式環境的標準做法
 CMD exec gunicorn --bind :$PORT --workers 1 main:app
