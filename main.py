@@ -6,7 +6,7 @@ load_dotenv()
 
 from flask import Flask, request, abort, send_from_directory
 import uuid
-import logging # <<<=== 引入 logging 模組
+import logging
 import sys
 
 from linebot import LineBotApi, WebhookHandler
@@ -26,18 +26,16 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import yfinance as yf
-import importlib.metadata
 from ai_utils import ask_gemini_for_news
 from yahoo_fin import stock_info as si
 
-# <<<=== 新增！強制設定日誌記錄器 ===>>>
+# 強制設定日誌記錄器
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
     stream=sys.stdout,
     force=True
 )
-# <<<================================>>>
 
 # =============================================================
 # 從環境變數讀取金鑰並初始化服務
@@ -71,7 +69,6 @@ def init_db():
         cursor.close()
         conn.close()
     except Exception as e:
-        # <<<=== 將 print 改為 logging.error ===>>>
         logging.error(f"資料庫初始化失敗: {e}", exc_info=True)
 
 init_db()
@@ -89,50 +86,36 @@ def get_stock_price(symbol):
         if not data or data.get('c') == 0: return f"找不到股票代碼 '{symbol.upper()}' 的資料。"
         current_price, price_change, percent_change = data.get('c', 0), data.get('d', 0), data.get('dp', 0)
         high_price, low_price = data.get('h', 0), data.get('l', 0)
-        emoji = "📈" if price_change >= 0 else "📉"
+        emoji = "📈" if (price_change is not None and price_change >= 0) else "📉"
         return (f"{emoji} {symbol.upper()} 的即時股價資訊：\n"
                 f"--------------------------\n"
                 f"當前價格: ${current_price:,.2f}\n漲跌: ${price_change:,.2f}\n"
                 f"漲跌幅: {percent_change:.2f}%\n最高價: ${high_price:,.2f}\n"
                 f"最低價: ${low_price:,.2f}\n--------------------------")
     except Exception as e:
-        # <<<=== 將 print 改為 logging.error ===>>>
         logging.error(f"查詢股價時發生錯誤 for symbol {symbol}: {e}", exc_info=True)
         return "查詢股價時發生錯誤。"
 
-# <<<=== 新增！查詢熱門股的功能 ===>>>
 def get_hot_stocks():
-    """
-    使用 yahoo_fin 取得當日美股交易量最大的前10名股票，並查詢報價。
-    """
     try:
         reply_text = "🔥 --- 美股即時交易量 Top 10 --- 🔥"
-        
-        # 1. 使用 yahoo_fin 取得交易最活躍的股票列表
-        most_active = si.get_most_active()
-        
-        # 2. 從 DataFrame 中取出股票代碼欄位 ('Symbol') 的前10名
+        most_active = si.get_day_most_active()
         top_10_symbols = most_active['Symbol'].head(10).tolist()
 
-        # 3. 遍歷列表，呼叫現有函式來獲取單一股票的簡化資訊
         for symbol in top_10_symbols:
             price_info = get_stock_price(symbol)
             try:
                 lines = price_info.split('\n')
                 price_line = lines[2]
                 change_line = lines[4]
-                emoji = "📈" if price_change >= 0 else "📉" # 沿用 get_stock_price 裡的變數
-                
                 reply_text += f"\n- **{symbol}**: {price_line.split(':')[1].strip()} ({change_line.split(':')[1].strip()})"
-            except (IndexError, NameError, AttributeError):
-                reply_text += f"\n- **{symbol}**: {price_info}"
+            except (IndexError, AttributeError):
+                reply_text += f"\n- **{symbol}**: (無法取得報價)"
         
         return reply_text.strip()
-
     except Exception as e:
         logging.error(f"獲取熱門股時發生錯誤: {e}", exc_info=True)
         return "查詢熱門股時發生錯誤，請稍後再試。"
-# <<<================================>>>
 
 def get_company_profile(symbol):
     if not FINNHUB_API_KEY: return "錯誤：尚未設定 Finnhub API Key。"
@@ -152,7 +135,6 @@ def get_company_profile(symbol):
                 f"本益比 (P/E): {pe_ratio:.2f}\n股價淨值比 (P/B): {pb_ratio:.2f}\n"
                 f"股價營收比 (P/S): {ps_ratio:.2f}\n年均殖利率 (%): {dividend_yield:.2f}")
     except Exception as e:
-        # <<<=== 將 print 改為 logging.error ===>>>
         logging.error(f"查詢基本面時發生錯誤 for symbol {symbol}: {e}", exc_info=True)
         return "查詢基本面時發生錯誤。"
 
@@ -161,25 +143,21 @@ def get_company_news(symbol):
     today, one_week_ago = datetime.date.today(), datetime.date.today() - datetime.timedelta(days=7)
     url = f"https://finnhub.io/api/v1/company-news?symbol={symbol.upper()}&from={one_week_ago.strftime('%Y-%m-%d')}&to={today.strftime('%Y-%m-%d')}&token={FINNHUB_API_KEY}"
     try:
-        response = requests.get(url, timeout=15) # 稍微增加超時時間
+        response = requests.get(url, timeout=15)
         response.raise_for_status()
         news_list = response.json()
         if not news_list: return f"找不到 {symbol.upper()} 在過去一週的相關新聞。"
-
+        
         news_item = news_list[0]
         headline = news_item.get('headline', '無標題')
         summary = news_item.get('summary', '無摘要')
         news_url = news_item.get('url', '#')
 
-        # <<<=== 使用全新的 Gemini 函式 ===>>>
-        # 將原始的英文標題和摘要內容傳遞給 Gemini
         ai_response = ask_gemini_for_news(headline, summary)
-
-        # 將 Gemini 回傳的完整內容，加上原文連結，組合起來
         reply_text = (f"📰 {symbol.upper()} 的 AI 智慧新聞摘要：\n\n"
                       f"{ai_response}\n\n"
                       f"🔗 原文連結：\n{news_url}")
-
+        
         return reply_text.strip()
     except Exception as e:
         logging.error(f"處理新聞資料時發生錯誤 for symbol {symbol}: {e}", exc_info=True)
@@ -198,7 +176,6 @@ def add_to_favorites(user_id, stock_symbol):
         conn.close()
         return f"{stock_symbol} 已經在您的最愛清單中了喔！ 😉"
     except Exception as e:
-        # <<<=== 將 print 改為 logging.error ===>>>
         logging.error(f"新增最愛時發生錯誤 for user {user_id}, symbol {stock_symbol}: {e}", exc_info=True)
         return "新增最愛時發生錯誤。"
 
@@ -212,7 +189,6 @@ def get_favorites(user_id):
         conn.close()
         return [item[0] for item in results]
     except Exception as e:
-        # <<<=== 將 print 改為 logging.error ===>>>
         logging.error(f"獲取最愛列表時發生錯誤 for user {user_id}: {e}", exc_info=True)
         return []
 
@@ -237,11 +213,8 @@ def generate_stock_chart(symbol):
         plt.close(fig)
         return filename
     except Exception as e:
-        # <<<=== 將 print 改為 logging.error ===>>>
         logging.error(f"圖表生成失敗 for symbol {symbol}: {e}", exc_info=True)
         return None
-
-
 
 # =============================================================
 # Webhook 路由
@@ -263,8 +236,6 @@ def serve_chart(filename):
 # =============================================================
 # 核心訊息處理邏輯
 # =============================================================
-# main.py
-
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user_id = event.source.user_id
@@ -283,21 +254,6 @@ def handle_message(event):
             for symbol in stock_list:
                 reply_text += f"\n{get_stock_price(symbol)}\n"
         reply_object = TextSendMessage(text=reply_text.strip())
-    
-    # <<<=== 新增！秘密偵錯指令 ===>>>
-    elif user_message == "debug:versions":
-        try:
-            # 引入 importlib.metadata 來查詢已安裝套件的版本
-            import importlib.metadata
-            yahoo_fin_version = importlib.metadata.version("yahoo_fin")
-            reply_text = f"yahoo_fin version: {yahoo_fin_version}"
-        except importlib.metadata.PackageNotFoundError:
-            reply_text = "yahoo_fin is not installed."
-        except Exception as e:
-            reply_text = f"檢查版本時發生錯誤: {str(e)}"
-        reply_object = TextSendMessage(text=reply_text)
-    # <<<===========================>>>
-
     elif user_message in ['熱門股', 'hot stocks', 'hot']:
         reply_object = TextSendMessage(text=get_hot_stocks())
     elif 'profile' in user_message:
@@ -328,7 +284,7 @@ def handle_message(event):
             quick_reply_buttons = QuickReply(items=[
                 QuickReplyButton(action=MessageAction(label="股價走勢圖 📈", text=f"{stock_symbol} chart")),
                 QuickReplyButton(action=MessageAction(label="基本面 📊", text=f"{stock_symbol} profile")),
-                QuickButton(action=MessageAction(label="最新新聞 📰", text=f"{stock_symbol} news")),
+                QuickReplyButton(action=MessageAction(label="最新新聞 📰", text=f"{stock_symbol} news")),
                 QuickReplyButton(action=MessageAction(label="加入我的最愛 ❤️", text=f"add {stock_symbol}")),])
             reply_object = TextSendMessage(text=reply_text, quick_reply=quick_reply_buttons)
     
