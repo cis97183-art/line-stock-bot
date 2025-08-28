@@ -248,11 +248,11 @@ def handle_message(event):
             reply_object = TextSendMessage(text="請輸入正確格式：industry [股票代號] 或 產業 [股票代號]")
     
     # 新增熱門成交量功能
-    elif user_message in ['熱門成交量', '爆量', '熱門']:
+    elif user_message in ['熱門成交量', '爆量', '熱門','成交量排名']:
         reply_object = TextSendMessage(text=get_top_volume_stocks())
 
     # === 新增漲幅偵測與排名功能 ===
-    elif user_message in ['熱門漲幅', '漲幅']:
+    elif user_message in ['熱門漲幅', '漲幅','漲幅排名']:
         reply_object = TextSendMessage(text=get_top_gainers())
 
     elif user_message.upper() in ['HI', 'HELLO', '你好', '哈囉']:
