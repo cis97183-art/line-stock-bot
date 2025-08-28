@@ -26,6 +26,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import yfinance as yf
+import importlib.metadata
 from ai_utils import ask_gemini_for_news
 from yahoo_fin import stock_info as si
 
@@ -262,6 +263,8 @@ def serve_chart(filename):
 # =============================================================
 # 核心訊息處理邏輯
 # =============================================================
+# main.py
+
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user_id = event.source.user_id
@@ -273,18 +276,30 @@ def handle_message(event):
         reply_object = TextSendMessage(text=reply_text)
     elif user_message in ['我的最愛', 'favorite', 'favorites']:
         stock_list = get_favorites(user_id)
-        if not stock_list: reply_text = "您的最愛清單是空的喔！快去新增吧！"
+        if not stock_list:
+            reply_text = "您的最愛清單是空的喔！快去新增吧！"
         else:
             reply_text = "--- 您的最愛清單 ✨ ---\n"
             for symbol in stock_list:
                 reply_text += f"\n{get_stock_price(symbol)}\n"
         reply_object = TextSendMessage(text=reply_text.strip())
     
-    # <<<=== 新增！處理熱門股指令 ===>>>
-    elif user_message in ['熱門股', 'hot stocks', 'hot']:
-        reply_object = TextSendMessage(text=get_hot_stocks())
+    # <<<=== 新增！秘密偵錯指令 ===>>>
+    elif user_message == "debug:versions":
+        try:
+            # 引入 importlib.metadata 來查詢已安裝套件的版本
+            import importlib.metadata
+            yahoo_fin_version = importlib.metadata.version("yahoo_fin")
+            reply_text = f"yahoo_fin version: {yahoo_fin_version}"
+        except importlib.metadata.PackageNotFoundError:
+            reply_text = "yahoo_fin is not installed."
+        except Exception as e:
+            reply_text = f"檢查版本時發生錯誤: {str(e)}"
+        reply_object = TextSendMessage(text=reply_text)
     # <<<===========================>>>
 
+    elif user_message in ['熱門股', 'hot stocks', 'hot']:
+        reply_object = TextSendMessage(text=get_hot_stocks())
     elif 'profile' in user_message:
         stock_symbol = user_message.split(" ")[0].upper()
         reply_object = TextSendMessage(text=get_company_profile(stock_symbol))
@@ -313,7 +328,7 @@ def handle_message(event):
             quick_reply_buttons = QuickReply(items=[
                 QuickReplyButton(action=MessageAction(label="股價走勢圖 📈", text=f"{stock_symbol} chart")),
                 QuickReplyButton(action=MessageAction(label="基本面 📊", text=f"{stock_symbol} profile")),
-                QuickReplyButton(action=MessageAction(label="最新新聞 📰", text=f"{stock_symbol} news")),
+                QuickButton(action=MessageAction(label="最新新聞 📰", text=f"{stock_symbol} news")),
                 QuickReplyButton(action=MessageAction(label="加入我的最愛 ❤️", text=f"add {stock_symbol}")),])
             reply_object = TextSendMessage(text=reply_text, quick_reply=quick_reply_buttons)
     
