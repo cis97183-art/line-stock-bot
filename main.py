@@ -28,7 +28,11 @@ import matplotlib.pyplot as plt
 import yfinance as yf
 from ai_utils import ask_gemini_for_news
 from yahoo_fin import stock_info as si
+
+# 匯入我們自己的模組
 from stock_lookup import get_stock_code 
+from rank import get_top_gainers
+from vol import get_top_volume_stocks
 
 # 強制設定日誌記錄器
 logging.basicConfig(
@@ -44,6 +48,7 @@ logging.basicConfig(
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
 LINE_CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET')
 FINNHUB_API_KEY = os.environ.get('FINNHUB_API_KEY')
+FINNHUB_API_URL = "https://finnhub.io/api/v1"
 DATABASE_URL = os.environ.get('DATABASE_URL')
 SERVICE_PUBLIC_URL = os.environ.get('SERVICE_PUBLIC_URL')
 
@@ -75,7 +80,7 @@ def init_db():
 init_db()
 
 # =============================================================
-# 所有功能函式
+# 所有功能函式 (除了 rank 和 vol)
 # =============================================================
 def get_stock_price(symbol):
     if not FINNHUB_API_KEY: return "錯誤：尚未設定 Finnhub API Key。"
@@ -235,22 +240,27 @@ def serve_chart(filename):
     return send_from_directory('tmp_charts', filename)
 
 # =============================================================
-# 核心訊息處理邏輯
-# =============================================================
-# =============================================================
-# 核心訊息處理邏輯 (修改後)
+# 核心訊息處理邏輯 (已整合 rank, vol, stock_lookup)
 # =============================================================
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user_id = event.source.user_id
-    # 這裡我們保留原始訊息的大小寫，方便後續查詢
     user_message_original = event.message.text
-    user_message = user_message_original.lower() # 判斷指令時用小寫
+    user_message = user_message_original.lower()
     reply_object = None
+    
+    # 定義通用的快速回覆按鈕
+    common_quick_reply_buttons = QuickReply(items=[
+        QuickReplyButton(action=MessageAction(label="漲幅排名 🚀", text="漲幅排名")),
+        QuickReplyButton(action=MessageAction(label="熱門成交量 📈", text="熱門成交量")),
+        QuickReplyButton(action=MessageAction(label="我的最愛 ❤️", text="我的最愛")),
+        QuickReplyButton(action=MessageAction(label="使用說明 📝", text="使用說明"))
+    ])
 
     if user_message in ['使用說明', 'help', '查詢股價', 'stock', 'query']:
         reply_text = "請直接輸入您想查詢的美股公司名稱 (如：蘋果) 或代碼 (如: NVDA)，或點擊下方選單功能。"
-        reply_object = TextSendMessage(text=reply_text)
+        reply_object = TextSendMessage(text=reply_text, quick_reply=common_quick_reply_buttons)
+        
     elif user_message in ['我的最愛', 'favorite', 'favorites']:
         stock_list = get_favorites(user_id)
         if not stock_list:
@@ -259,28 +269,31 @@ def handle_message(event):
             reply_text = "--- 您的最愛清單 ✨ ---\n"
             for symbol in stock_list:
                 reply_text += f"\n{get_stock_price(symbol)}\n"
-        reply_object = TextSendMessage(text=reply_text.strip())
-    elif user_message == "debug:reqs":
-        try:
-            with open("requirements.txt", "r") as f:
-                content = f.read()
-            reply_text = f"requirements.txt content:\n\n{content}"
-        except FileNotFoundError:
-            reply_text = "Error: requirements.txt not found."
-        except Exception as e:
-            reply_text = f"Error reading file: {str(e)}"
-        reply_object = TextSendMessage(text=reply_text)
+        reply_object = TextSendMessage(text=reply_text.strip(), quick_reply=common_quick_reply_buttons)
+        
     elif user_message in ['熱門股', 'hot stocks', 'hot']:
-        reply_object = TextSendMessage(text=get_hot_stocks())
+        reply_object = TextSendMessage(text=get_hot_stocks(), quick_reply=common_quick_reply_buttons)
+        
+    elif user_message in ['熱門成交量', 'volume']:
+        reply_text = get_top_volume_stocks(FINNHUB_API_URL, FINNHUB_API_KEY)
+        reply_object = TextSendMessage(text=reply_text, quick_reply=common_quick_reply_buttons)
+        
+    elif user_message in ['漲幅排名', 'gainers']:
+        reply_text = get_top_gainers(FINNHUB_API_URL, FINNHUB_API_KEY)
+        reply_object = TextSendMessage(text=reply_text, quick_reply=common_quick_reply_buttons)
+        
     elif 'profile' in user_message:
         stock_symbol = user_message.split(" ")[0].upper()
-        reply_object = TextSendMessage(text=get_company_profile(stock_symbol))
+        reply_object = TextSendMessage(text=get_company_profile(stock_symbol), quick_reply=common_quick_reply_buttons)
+        
     elif 'news' in user_message:
         stock_symbol = user_message.split(" ")[0].upper()
-        reply_object = TextSendMessage(text=get_company_news(stock_symbol))
+        reply_object = TextSendMessage(text=get_company_news(stock_symbol), quick_reply=common_quick_reply_buttons)
+        
     elif 'add ' in user_message:
         stock_symbol = user_message.split(" ")[1].upper()
-        reply_object = TextSendMessage(text=add_to_favorites(user_id, stock_symbol))
+        reply_object = TextSendMessage(text=add_to_favorites(user_id, stock_symbol), quick_reply=common_quick_reply_buttons)
+        
     elif 'chart' in user_message:
         stock_symbol = user_message.split(" ")[0].upper()
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"正在為您產生 {stock_symbol} 的股價走勢圖，請稍候..."))
@@ -291,31 +304,28 @@ def handle_message(event):
         else:
             line_bot_api.push_message(user_id, TextSendMessage(text=f"抱歉，無法產生 {stock_symbol} 的圖表。"))
         return
-    else:
-        # <<<<<<<<<<<< 程式修改開始 <<<<<<<<<<<<
         
-        # 首先，嘗試將使用者的輸入 (可能是中文或英文公司名) 轉換為股票代碼
-        # 我們使用 user_message_original 來保留原始大小寫，以應對 "Apple" 這種情況
+    else:
         stock_symbol = get_stock_code(user_message_original)
         
-        # 如果轉換失敗 (回傳 None)，代表使用者可能直接輸入了代碼
         if not stock_symbol:
-            stock_symbol = user_message_original.upper() # 就採用使用者原始輸入，並轉大寫
+            stock_symbol = user_message_original.upper()
         else:
-            # 如果轉換成功，用一個友善的提示告知使用者
             logging.info(f"成功將 '{user_message_original}' 轉換為股票代碼 '{stock_symbol}'")
 
-        # <<<<<<<<<<<< 程式修改結束 <<<<<<<<<<<<
-        
         reply_text = get_stock_price(stock_symbol)
+        
         if "找不到" in reply_text or "錯誤" in reply_text:
-            reply_object = TextSendMessage(text=reply_text)
+            reply_object = TextSendMessage(text=reply_text, quick_reply=common_quick_reply_buttons)
         else:
             quick_reply_buttons = QuickReply(items=[
                 QuickReplyButton(action=MessageAction(label="股價走勢圖 📈", text=f"{stock_symbol} chart")),
                 QuickReplyButton(action=MessageAction(label="基本面 📊", text=f"{stock_symbol} profile")),
                 QuickReplyButton(action=MessageAction(label="最新新聞 📰", text=f"{stock_symbol} news")),
-                QuickReplyButton(action=MessageAction(label="加入我的最愛 ❤️", text=f"add {stock_symbol}")),])
+                QuickReplyButton(action=MessageAction(label="加入我的最愛 ❤️", text=f"add {stock_symbol}")),
+                QuickReplyButton(action=MessageAction(label="漲幅排名 🚀", text="漲幅排名")),
+                QuickReplyButton(action=MessageAction(label="熱門成交量 📈", text="熱門成交量")),
+            ])
             reply_object = TextSendMessage(text=reply_text, quick_reply=quick_reply_buttons)
     
     if reply_object:
