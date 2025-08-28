@@ -28,6 +28,7 @@ import matplotlib.pyplot as plt
 import yfinance as yf
 from ai_utils import ask_gemini_for_news
 from yahoo_fin import stock_info as si
+from stock_lookup import get_stock_code 
 
 # 強制設定日誌記錄器
 logging.basicConfig(
@@ -236,14 +237,19 @@ def serve_chart(filename):
 # =============================================================
 # 核心訊息處理邏輯
 # =============================================================
+# =============================================================
+# 核心訊息處理邏輯 (修改後)
+# =============================================================
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     user_id = event.source.user_id
-    user_message = event.message.text.lower()
+    # 這裡我們保留原始訊息的大小寫，方便後續查詢
+    user_message_original = event.message.text
+    user_message = user_message_original.lower() # 判斷指令時用小寫
     reply_object = None
 
     if user_message in ['使用說明', 'help', '查詢股價', 'stock', 'query']:
-        reply_text = "請直接輸入您想查詢的美股代碼 (例如: NVDA)，或點擊下方選單功能。"
+        reply_text = "請直接輸入您想查詢的美股公司名稱 (如：蘋果) 或代碼 (如: NVDA)，或點擊下方選單功能。"
         reply_object = TextSendMessage(text=reply_text)
     elif user_message in ['我的最愛', 'favorite', 'favorites']:
         stock_list = get_favorites(user_id)
@@ -254,6 +260,16 @@ def handle_message(event):
             for symbol in stock_list:
                 reply_text += f"\n{get_stock_price(symbol)}\n"
         reply_object = TextSendMessage(text=reply_text.strip())
+    elif user_message == "debug:reqs":
+        try:
+            with open("requirements.txt", "r") as f:
+                content = f.read()
+            reply_text = f"requirements.txt content:\n\n{content}"
+        except FileNotFoundError:
+            reply_text = "Error: requirements.txt not found."
+        except Exception as e:
+            reply_text = f"Error reading file: {str(e)}"
+        reply_object = TextSendMessage(text=reply_text)
     elif user_message in ['熱門股', 'hot stocks', 'hot']:
         reply_object = TextSendMessage(text=get_hot_stocks())
     elif 'profile' in user_message:
@@ -276,7 +292,21 @@ def handle_message(event):
             line_bot_api.push_message(user_id, TextSendMessage(text=f"抱歉，無法產生 {stock_symbol} 的圖表。"))
         return
     else:
-        stock_symbol = user_message.upper()
+        # <<<<<<<<<<<< 程式修改開始 <<<<<<<<<<<<
+        
+        # 首先，嘗試將使用者的輸入 (可能是中文或英文公司名) 轉換為股票代碼
+        # 我們使用 user_message_original 來保留原始大小寫，以應對 "Apple" 這種情況
+        stock_symbol = get_stock_code(user_message_original)
+        
+        # 如果轉換失敗 (回傳 None)，代表使用者可能直接輸入了代碼
+        if not stock_symbol:
+            stock_symbol = user_message_original.upper() # 就採用使用者原始輸入，並轉大寫
+        else:
+            # 如果轉換成功，用一個友善的提示告知使用者
+            logging.info(f"成功將 '{user_message_original}' 轉換為股票代碼 '{stock_symbol}'")
+
+        # <<<<<<<<<<<< 程式修改結束 <<<<<<<<<<<<
+        
         reply_text = get_stock_price(stock_symbol)
         if "找不到" in reply_text or "錯誤" in reply_text:
             reply_object = TextSendMessage(text=reply_text)
